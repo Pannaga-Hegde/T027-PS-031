@@ -1,0 +1,21 @@
+stateDiagram-v2
+    [*] --> RECEIVED
+
+    RECEIVED --> REJECTED: No eligible store
+    RECEIVED --> ALLOCATED: Store selected
+
+    ALLOCATED --> CANCELLED: Cancel before picking
+    ALLOCATED --> PICKING: Picking begins
+
+    PICKING --> CANCELLED: Cancel before dispatch
+    PICKING --> CANCELLED: Fulfilled value below 60 percent
+    PICKING --> READY_FOR_DISPATCH: Picking completed
+
+    READY_FOR_DISPATCH --> CANCELLED: Cancel before dispatch
+    READY_FOR_DISPATCH --> DISPATCHED: Batch dispatched
+
+    DISPATCHED --> DELIVERED: Delivery recorded
+
+    REJECTED --> [*]
+    CANCELLED --> [*]
+    DELIVERED --> [*]
