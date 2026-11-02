@@ -7,6 +7,10 @@ stateDiagram-v2
     ALLOCATED --> CANCELLED: Cancel before picking
     ALLOCATED --> PICKING: Picking begins
 
+    note right of ALLOCATED
+        DELAYED_PROMISE is an independent condition flag.
+    end note
+
     PICKING --> CANCELLED: Cancel before dispatch
     PICKING --> CANCELLED: Fulfilled value below 60 percent
     PICKING --> READY_FOR_DISPATCH: Picking completed
@@ -14,7 +18,12 @@ stateDiagram-v2
     READY_FOR_DISPATCH --> CANCELLED: Cancel before dispatch
     READY_FOR_DISPATCH --> DISPATCHED: Batch dispatched
 
+    DISPATCHED --> CANCELLED: Post-dispatch cancellation handling
     DISPATCHED --> DELIVERED: Delivery recorded
+
+    note right of DISPATCHED
+        Refund eligibility and compensation depend on applicable business rules.
+    end note
 
     REJECTED --> [*]
     CANCELLED --> [*]
