@@ -1,0 +1,100 @@
+classDiagram
+    direction TB
+
+    class SubstitutionPolicy {
+        <<enumeration>>
+        ALLOW
+        SIMILAR_ONLY
+        NONE
+    }
+
+    class OrderState {
+        <<enumeration>>
+        RECEIVED
+        ALLOCATED
+        PICKING
+        READY_FOR_DISPATCH
+        DISPATCHED
+        DELIVERED
+        CANCELLED
+        REJECTED
+    }
+
+    class Coordinates {
+        +float latitude
+        +float longitude
+    }
+
+    class OperatingHours {
+        +time open_time
+        +time close_time
+        +is_open(current_time: time) bool
+    }
+
+    class OrderItem {
+        +str product_id
+        +int quantity
+        +Decimal unit_price
+    }
+
+    class Order {
+        +str order_id
+        +str customer_id
+        +Coordinates delivery_location
+        +datetime order_time
+        +List~OrderItem~ items
+        +SubstitutionPolicy substitution_policy
+        +OrderState status
+        +str allocated_store_id
+        +datetime promised_eta
+        +bool delayed_promise
+        +bool slow_delivery
+        +Decimal delivery_fee
+        +Decimal surge_fee
+        +datetime actual_delivery_time
+    }
+
+    class Store {
+        +str store_id
+        +str name
+        +Coordinates location
+        +OperatingHours operating_hours
+        +int picking_capacity
+        +int active_riders
+        +datetime weather_hold_until
+        +Dict~str, int~ inventory
+    }
+
+    class Product {
+        +str sku
+        +str name
+        +str category
+        +str brand
+        +Decimal price
+    }
+
+    class Rider {
+        +str rider_id
+        +str name
+        +str status
+        +Decimal daily_penalty
+    }
+
+    class Batch {
+        +str batch_id
+        +str rider_id
+        +List~Order~ orders
+        +datetime created_at
+        +datetime dispatched_at
+        +str status
+    }
+
+    Order "1" *-- "1..*" OrderItem : contains
+    Order --> SubstitutionPolicy : specifies
+    Order --> OrderState : tracks
+    Order --> Coordinates : delivers to
+    Store *-- Coordinates : located at
+    Store *-- OperatingHours : operates during
+    Store ..> Product : stocks
+    Batch "1" o-- "1..3" Order : clusters
+    Batch --> Rider : assigned to

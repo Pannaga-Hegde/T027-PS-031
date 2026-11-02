@@ -132,7 +132,7 @@ The initial design uses JSON Lines, with one JSON object per line. This is a pro
 
 Domain models represent stores, products, orders, order lines, riders, batches, substitutions, and delivery records.
 
-They hold the data required to evaluate business rules and maintain operational state.
+They hold the data required to evaluate business rules and maintain operational state. The structural model, attributes, and entity relationships are formally documented in `class-diagram.mmd`.
 
 ### 6.3 Business Services
 
@@ -150,26 +150,26 @@ Automated tests validate individual rules, boundary conditions, service interact
 
 ## 7. Proposed Module Responsibilities
 
-| Module                    | Responsibility                                              |
-| ------------------------- | ----------------------------------------------------------- |
-| `main.py`                 | Application entry point and command-processing coordination |
-| `command_parser.py`       | Read and validate command-file input                        |
-| `store.py`                | Represent a dark store                                      |
-| `product.py`              | Represent product and SKU information                       |
-| `order.py`                | Represent orders, lines, preferences, and lifecycle state   |
-| `rider.py`                | Represent riders and daily penalty information              |
-| `batch.py`                | Represent a group of orders assigned for delivery           |
-| `store_service.py`        | Register and retrieve stores                                |
-| `allocation_service.py`   | Evaluate serviceability and select stores                   |
-| `inventory_service.py`    | Check and update available inventory                        |
-| `substitution_service.py` | Select eligible replacement products                        |
-| `picking_service.py`      | Manage picking capacity and scheduling                      |
-| `batching_service.py`     | Form batches and schedule dispatch                          |
-| `delivery_service.py`     | Record deliveries and delivery outcomes                     |
-| `compensation_service.py` | Calculate SLA compensation and rider penalties              |
-| `cancellation_service.py` | Process cancellation requests                               |
-| `distance.py`             | Calculate geographic distance                               |
-| `time_utils.py`           | Support consistent time calculations                        |
+| Module (Package Path)                    | Responsibility                                              |
+| ---------------------------------------- | ----------------------------------------------------------- |
+| `src/ps031/main.py`                      | Application entry point and command-processing coordination |
+| `src/ps031/command_parser.py`            | Read and validate command-file input                        |
+| `src/ps031/models/store.py`              | Represent a dark store, hours, and inventory                |
+| `src/ps031/models/product.py`            | Represent product and SKU information                       |
+| `src/ps031/models/order.py`              | Represent orders, items, preferences, and lifecycle state   |
+| `src/ps031/models/rider.py`              | Represent riders and daily penalty information              |
+| `src/ps031/models/batch.py`              | Represent a group of orders assigned for delivery           |
+| `src/ps031/services/store_service.py`    | Register and retrieve stores                                |
+| `src/ps031/services/allocation_service.py` | Evaluate serviceability and select stores                 |
+| `src/ps031/services/inventory_service.py`  | Check and update available inventory                      |
+| `src/ps031/services/substitution_service.py` | Select eligible replacement products                      |
+| `src/ps031/services/picking_service.py`   | Manage picking capacity and scheduling                      |
+| `src/ps031/services/batching_service.py`  | Form batches and schedule dispatch                          |
+| `src/ps031/services/delivery_service.py`  | Record deliveries and delivery outcomes                     |
+| `src/ps031/services/compensation_service.py` | Calculate SLA compensation and rider penalties            |
+| `src/ps031/services/cancellation_service.py` | Process cancellation requests                             |
+| `src/ps031/utils/distance.py`            | Calculate geographic distance (Haversine formula)           |
+| `src/ps031/utils/time_utils.py`          | Support consistent time calculations and slot alignment     |
 
 This table describes the intended architecture. It must be updated if the implementation changes.
 
@@ -187,7 +187,7 @@ An order progresses through defined lifecycle states, from receipt and allocatio
 
 Alternative paths include rejection, cancellation, and pre-dispatch fulfilment cancellation.
 
-The state diagram is maintained in `state-diagram.mmd`.
+The state diagram and detailed transition specifications are maintained in `state-diagram.mmd` and `state-diagram.md`.
 
 The `DELAYED_PROMISE` condition is tracked separately from the primary lifecycle state because it affects SLA treatment rather than necessarily representing a distinct lifecycle stage.
 
@@ -241,7 +241,7 @@ Where an interpretation is necessary, it must be documented and tested. Any clar
 
 | Milestone                | Target date     | Expected outcome                                                       |
 | ------------------------ | --------------- | ---------------------------------------------------------------------- |
-| Design catch-up          | 27 October 2026 | Design document, glossary, diagrams, and business-rule register        |
+| Design catch-up          | 29 October 2026 | Design document, glossary, diagrams, and business-rule register        |
 | Core flows               | 30 October 2026 | Working allocation flow, sample commands, tests, and shared repository |
 | Full rule implementation | 6 November 2026 | All business rules and required edge cases implemented and tested      |
 | Final submission         | To be announced | Final documentation, decision log, test suite, and demonstration       |

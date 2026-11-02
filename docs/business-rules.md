@@ -4,11 +4,13 @@
 
 **Status definitions:**
 
-* `NOT IMPLEMENTED` — The rule is documented but not implemented.
+* `NOT IMPLEMENTED` — The rule specification is complete, but backend code has not been implemented.
 * `IN PROGRESS` — Implementation has started.
 * `IMPLEMENTED` — The code has been written.
 * `TESTED` — Required tests pass for the rule.
 * `VERIFIED` — Implementation, tests, and documentation have been reviewed together.
+
+*Note for Week 1 Design Deliverable:* All 12 business rules below have complete requirements and test specifications. The `NOT IMPLEMENTED` status tags reflect software execution progress, which begins in Week 2.
 
 ## BR-01 — Serviceability
 
@@ -97,7 +99,7 @@
 
 ## BR-06 — Partial Fulfilment
 
-**Requirement:** If fulfilled value drops below 60% of original order value, cancel before dispatch and issue a full refund with no delivery fee.
+**Requirement:** If fulfilled value drops below 60% of original order value, cancel before dispatch and issue a full refund with no delivery fee. (Triggers the `PICKING --> CANCELLED` threshold transition in `state-diagram.mmd`).
 
 **Implementation module:** `cancellation_service.py`, `substitution_service.py`
 
@@ -116,7 +118,7 @@
 
 **Requirement:** Delivery fee is ₹0 when post-substitution order value is at least ₹199; otherwise ₹25. Add a ₹15 surge when active riders are fewer than three at allocation time. Freeze the fee at allocation.
 
-**Implementation module:** Pricing logic within the order or allocation service.
+**Implementation module:** `pricing_service.py` (or pricing logic in `allocation_service.py` / `order.py`)
 
 **Required tests:**
 
@@ -199,7 +201,7 @@
 
 ## BR-12 — Cancellation
 
-**Requirement:** Cancellation before picking starts is free. Cancellation after picking starts but before dispatch costs ₹20. After dispatch, no refund is provided except for lines substituted without `ALLOW`.
+**Requirement:** Cancellation before picking starts is free. Cancellation after picking starts but before dispatch costs ₹20. After dispatch, no refund is provided except for lines substituted without `ALLOW`. (Reconciled with lifecycle transitions in `state-diagram.mmd` and `state-diagram.md`).
 
 **Implementation module:** `cancellation_service.py`
 

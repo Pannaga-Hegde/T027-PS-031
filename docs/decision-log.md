@@ -18,15 +18,15 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 **Decision:** Use pytest for automated tests.
 **Reason:** pytest supports readable tests for business rules, boundary conditions, and service interactions.
 **Alternatives:** Python's built-in unittest framework.
-**Status:** Accepted, pending installation verification.
+**Status:** Accepted (pytest 9.1.1 verified in development virtual environment with active automated test suite).
 
 ## DEC-03 — Application Architecture
 
 **Date:** 26 October 2026
-**Decision:** Use separate modules for domain models, business services, command parsing, and shared utilities.
+**Decision:** Use separate modules for domain models, business services, command parsing, and shared utilities under `src/ps031/`.
 **Reason:** Separation of responsibilities makes the implementation easier to test, maintain, and explain during the viva.
 **Alternatives:** Implement all functionality in a single file or combine parsing and business logic.
-**Status:** Proposed; verify against the implemented architecture.
+**Status:** Accepted.
 
 ## DEC-04 — Initial Data Storage
 
@@ -39,10 +39,10 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 ## DEC-05 — Geographic Distance
 
 **Date:** 26 October 2026
-**Decision:** Implement the Haversine formula in a shared utility module and apply the specified two-decimal-place rounding consistently.
-**Reason:** The distance calculation is reused by serviceability and batching.
+**Decision:** Implement the Haversine formula in a shared utility module (`src/ps031/utils/distance.py`) and apply the specified two-decimal-place rounding consistently.
+**Reason:** The distance calculation is reused by serviceability (BR-01) and batching (BR-08).
 **Alternatives:** Duplicate the formula in each service.
-**Status:** Required design approach; implementation pending.
+**Status:** Accepted.
 
 ## DEC-06 — Monetary Arithmetic
 
@@ -50,7 +50,7 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 **Decision:** Use Python Decimal for monetary calculations.
 **Reason:** Decimal arithmetic avoids common binary floating-point representation errors in financial calculations.
 **Alternatives:** Use binary floating-point numbers for all amounts.
-**Status:** Proposed; implementation pending.
+**Status:** Accepted (implemented in `OrderItem` model with finite Decimal validation).
 
 ## DEC-07 — Command-File Format
 
@@ -60,8 +60,15 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 **Alternatives:** Custom text commands or a single JSON document.
 **Status:** Proposed; confirm that the format satisfies the evaluation requirements.
 
-## Open Decisions
+## DEC-08 — Unresolved Interpretations and Ambiguities
 
-Additional decisions must be recorded when requirements are ambiguous or implementation choices affect business-rule outcomes.
-
-Each entry should identify the problem, alternatives, chosen interpretation, rationale, and any impact on tests or documentation.
+**Date:** 29 October 2026
+**Topic:** Clarification of operational formulas and tie-breaking rules.
+**Items Requiring Mentor Guidance:**
+1. **Line-Fill Calculation (BR-02):** The glossary states line-fill requires an exact operational definition. Candidates are:
+   - SKU line count ratio: $\frac{\text{fulfilled distinct SKUs}}{\text{requested distinct SKUs}}$
+   - Unit quantity ratio: $\frac{\text{fulfilled units}}{\text{requested units}}$
+2. **Deterministic Tie-Breaking (BR-02):** When stores tie on stock, distance, and picking load, confirm if lexicographical `store_id` is the final tie-breaker.
+3. **Dispatch of Single Orders (BR-08):** If an order cannot be batched with any nearby order, confirm whether it dispatches immediately upon picking completion or after the 3-minute waiting timer.
+4. **Command Schema & Output (FR-11):** Confirm exact command names and whether the order trace is expected on standard output or written to an output file.
+**Status:** Open; documented for mentor review.
