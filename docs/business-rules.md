@@ -99,7 +99,7 @@
 
 ## BR-06 — Partial Fulfilment
 
-**Requirement:** If fulfilled value drops below 60% of original order value, cancel before dispatch and issue a full refund with no delivery fee. (Triggers the `PICKING --> CANCELLED` threshold transition in `state-diagram.mmd`).
+**Requirement:** If fulfilled value drops below 60% of original order value, cancel before dispatch and issue a full refund with no delivery fee. (Triggers the `PICKING --> CANCELLED` threshold transition in `docs/state-diagram.mmd`).
 
 **Implementation module:** `cancellation_service.py`, `substitution_service.py`
 
@@ -201,7 +201,7 @@
 
 ## BR-12 — Cancellation
 
-**Requirement:** Cancellation before picking starts is free. Cancellation after picking starts but before dispatch costs ₹20. After dispatch, no refund is provided except for lines substituted without `ALLOW`. (Reconciled with lifecycle transitions in `state-diagram.mmd` and `state-diagram.md`).
+**Requirement:** Cancellation before picking starts is free. Cancellation after picking starts but before dispatch costs ₹20. After dispatch, no refund is provided except for lines substituted without `ALLOW`. (Reconciled with lifecycle transitions in `docs/state-diagram.mmd`).
 
 **Implementation module:** `cancellation_service.py`
 
