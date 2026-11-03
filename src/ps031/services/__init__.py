@@ -12,6 +12,12 @@ from ps031.services.lifecycle import (
     LifecycleTransitionInterface,
     LifecycleTransitionService,
 )
+from ps031.services.picking_service import (
+    ETAResult,
+    PickingScheduleResult,
+    PickingService,
+    PickingServiceInterface,
+)
 from ps031.services.pricing_service import (
     DeliveryPricingService,
     PricingResult,
@@ -28,10 +34,14 @@ __all__ = [
     "AllocationService",
     "AllocationServiceInterface",
     "DeliveryPricingService",
+    "ETAResult",
     "FulfilmentEvaluation",
     "FulfilmentService",
     "LifecycleTransitionInterface",
     "LifecycleTransitionService",
+    "PickingScheduleResult",
+    "PickingService",
+    "PickingServiceInterface",
     "PricingResult",
     "PricingService",
     "PricingServiceInterface",

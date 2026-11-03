@@ -87,3 +87,17 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 **Reason:** Provides deterministic, reproducible order allocation (NFR-02) and prevents duplicate order lines from multi-counting available stock.
 **Alternatives:** SKU line-count ratio; arbitrary non-deterministic selection.
 **Status:** Provisional implementation assumption pending mentor confirmation (does not claim mentor approval).
+
+## DEC-10 — Picking Slot Scheduling and ETA Calculation
+
+**Date:** 3 November 2026
+**Decision:** For BR-03 (Picking Capacity) and BR-04 (ETA Calculation):
+1. **Clock-Aligned Slots:** Picking capacity is managed across clock-aligned 10-minute intervals $[t_{\text{start}}, t_{\text{end}})$ with capacity defaulting to `Store.picking_capacity` (12 orders).
+2. **Discrete Orders Counted:** Slot occupancy tracks discrete order counts rather than item line or item unit quantities.
+3. **Cascading Overflow:** When a slot's capacity is reached, orders roll forward by 10 minutes into subsequent slots until capacity is found, accumulating a 10-minute delay per overflow iteration.
+4. **ETA Calculation Base & Timestamp Precedence:** When explicitly provided, evaluation `reference_time` takes precedence over `order.order_time` as the base timestamp for slot scheduling and promised delivery ETA calculation. Neither calculation ever uses `assigned_slot_start` as base.
+5. **Operating Hours vs. Slot Overflow:** Store operating hours govern initial order acceptance. An already accepted order experiencing picking overflow is permitted to be scheduled into a picking slot beginning after store closing.
+6. **Global Order Uniqueness:** An order has at most one active picking assignment globally across all dark stores; attempting to schedule an already-scheduled order at a different store is rejected, while re-scheduling at the same store is idempotent.
+**Reason:** Ensures deterministic, reproducible scheduling and delivery promises across all dark stores while maintaining SLA calculation consistency.
+**Alternatives:** Counting item lines or total unit quantities toward picking capacity; resetting slot overflow at closing time and rejecting orders.
+**Status:** Provisional implementation assumption pending mentor confirmation (does not claim mentor approval).
