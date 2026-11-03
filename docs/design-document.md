@@ -187,7 +187,7 @@ An order progresses through defined lifecycle states, from receipt and allocatio
 
 Alternative paths include rejection, cancellation, and pre-dispatch fulfilment cancellation.
 
-The state diagram and detailed transition specifications are maintained in `state-diagram.mmd` and `state-diagram.md`.
+The state diagram and detailed transition specifications are maintained in `docs/state-diagram.mmd`.
 
 The `DELAYED_PROMISE` condition is tracked separately from the primary lifecycle state because it affects SLA treatment rather than necessarily representing a distinct lifecycle stage.
 
