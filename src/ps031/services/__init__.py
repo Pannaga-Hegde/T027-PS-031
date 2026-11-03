@@ -4,6 +4,13 @@ from ps031.services.allocation_service import (
     AllocationServiceInterface,
     StoreEvaluation,
 )
+from ps031.services.batching_service import (
+    BatchDispatchResult,
+    BatchEvaluation,
+    BatchingService,
+    BatchingServiceInterface,
+    DeliveryCompletionResult,
+)
 from ps031.services.fulfilment_service import (
     FulfilmentEvaluation,
     FulfilmentService,
@@ -33,6 +40,11 @@ __all__ = [
     "AllocationResult",
     "AllocationService",
     "AllocationServiceInterface",
+    "BatchDispatchResult",
+    "BatchEvaluation",
+    "BatchingService",
+    "BatchingServiceInterface",
+    "DeliveryCompletionResult",
     "DeliveryPricingService",
     "ETAResult",
     "FulfilmentEvaluation",
