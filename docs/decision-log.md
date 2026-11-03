@@ -72,6 +72,7 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 2. **Deterministic Tie-Breaking (BR-02):** When stores tie on stock, distance, and picking load, confirm if lexicographical `store_id` is the final tie-breaker.
    *(Provisional implementation assumption adopted in DEC-09 pending mentor confirmation: lexicographical `store_id` ascending).*
 3. **Dispatch of Single Orders (BR-08):** If an order cannot be batched with any nearby order, confirm whether it dispatches immediately upon picking completion or after the 3-minute waiting timer.
+   *(Provisional implementation assumption adopted in DEC-11: a 3-order batch dispatches immediately, while a partial batch dispatches 3 minutes after the first order reaches READY_FOR_DISPATCH).*
 4. **Command Schema & Output (FR-11):** Confirm exact command names and whether the order trace is expected on standard output or written to an output file.
 **Status:** Open; documented for mentor review.
 
@@ -101,3 +102,24 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 **Reason:** Ensures deterministic, reproducible scheduling and delivery promises across all dark stores while maintaining SLA calculation consistency.
 **Alternatives:** Counting item lines or total unit quantities toward picking capacity; resetting slot overflow at closing time and rejecting orders.
 **Status:** Provisional implementation assumption pending mentor confirmation (does not claim mentor approval).
+
+## DEC-11 — Rider Batching Operational Rules
+
+**Date:** 3 November 2026
+**Decision:** For BR-08 (Rider Batching):
+1. **Batch Capacity:** A delivery batch accommodates a maximum of 3 orders ($N \le 3$).
+2. **Pairwise Geographic Proximity:** Delivery locations for all orders in a batch must satisfy an all-pairs distance constraint: the unrounded Haversine distance ($R = 6371.0\text{ km}$) between every pair of drop coordinates must be $\le 1.00\text{ km}$ (inclusive). Unrounded distances prevent rounding artifacts from admitting drops beyond 1.00 km.
+3. **Promised ETA Compatibility:** The maximum difference between the earliest and latest initial promised delivery ETAs across all orders in a batch must be $\le 4\text{ minutes}$ ($240\text{ seconds}$, inclusive). Orders with missing promised ETAs are rejected.
+4. **Deterministic Drop Sequencing:** Drops are ordered deterministically by:
+   - Shortest distance from the dark store location to customer delivery location (ascending),
+   - Then earliest `order.promised_eta` (ascending),
+   - Finally, lexicographically smallest `order.order_id` (ascending).
+5. **Drop Delay & ETA Recalculation:** Drop sequence indices determine `earlier_drops` ($0, 1, 2$). Each drop's ETA is updated using `PickingService.recalculate_eta(store, order, earlier_drops)` to preserve slot delay while applying the +2-minute incremental drop penalty. If a candidate order or batch proposal is rejected, original ETAs are preserved/restored.
+6. **Dispatch Timing Rules:**
+   - A batch of 3 orders dispatches immediately upon picking completion / `READY_FOR_DISPATCH` without a waiting timer.
+   - A partial batch (1 or 2 orders) must wait until 3 minutes after the first order reaches `READY_FOR_DISPATCH` ($t_{\text{dispatch}} \ge t_{\text{first\_ready}} + 3\text{ minutes}$).
+7. **Single Store & Global Active Uniqueness:** All orders in a batch must share the same `allocated_store_id`. An order or rider may belong to at most one active (`CREATED` or `DISPATCHED`) batch globally.
+8. **Atomic Lifecycle Transitions:** Dispatch validates all order transitions (`READY_FOR_DISPATCH` $\to$ `DISPATCHED`), rider availability, exact assigned rider object identity, and timestamps before mutating any domain entity. Upon delivery completion, orders transition to `DELIVERED` with `actual_delivery_time`, the batch becomes `DELIVERED`, and the rider is released to `AVAILABLE`. Exact rider object identity is enforced across dispatch, delivery completion, and cancellation when tracked. `Store.active_riders` is left unmodified pending coordination with BR-07.
+**Reason:** Ensures safe, predictable, reproducible rider dispatching and SLA guarantees without violating dark store allocation, picking capacity, or vehicle capacity constraints.
+**Alternatives:** TSP route optimization; dynamic re-clustering; rounded Haversine distance checks.
+**Status:** Accepted.
