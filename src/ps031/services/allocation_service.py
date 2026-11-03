@@ -12,6 +12,10 @@ from ps031.services.lifecycle import (
     LifecycleTransitionInterface,
     LifecycleTransitionService,
 )
+from ps031.services.pricing_service import (
+    PricingService,
+    PricingServiceInterface,
+)
 from ps031.utils.distance import haversine_distance
 
 MAX_SERVICEABILITY_DISTANCE_KM: float = 3.00
@@ -82,11 +86,17 @@ class AllocationService:
     def __init__(
         self,
         lifecycle_service: LifecycleTransitionInterface | None = None,
+        pricing_service: PricingServiceInterface | None = None,
     ) -> None:
         self._lifecycle_service = (
             lifecycle_service
             if lifecycle_service is not None
             else LifecycleTransitionService()
+        )
+        self._pricing_service = (
+            pricing_service
+            if pricing_service is not None
+            else PricingService()
         )
 
     def _resolve_evaluation_time(
@@ -312,8 +322,44 @@ class AllocationService:
         if apply_lifecycle_transition:
             # Validate before mutation to guarantee mutation safety on invalid state
             self._lifecycle_service.validate_transition(order, OrderState.ALLOCATED)
-            order.allocated_store_id = selected_store.store_id
-            self._lifecycle_service.transition(order, OrderState.ALLOCATED)
+
+            # Reject inconsistent state: a RECEIVED order cannot enter allocation with pre-frozen pricing
+            if order.pricing_frozen:
+                raise ValueError(
+                    f"Cannot allocate order '{order.order_id}': order has pricing_frozen=True in "
+                    f"'{order.status.value}' state. Pricing must be calculated and frozen at allocation time."
+                )
+
+            # Calculate pricing before any mutations to ensure pricing failures do not touch order
+            pricing_result = None
+            if self._pricing_service is not None:
+                pricing_result = self._pricing_service.calculate_pricing(
+                    order=order,
+                    store=selected_store,
+                )
+
+            # Snapshot state for atomic rollback if lifecycle transition fails
+            prev_status = order.status
+            prev_store_id = order.allocated_store_id
+            prev_delivery_fee = order.delivery_fee
+            prev_surge_fee = order.surge_fee
+            prev_pricing_frozen = order.pricing_frozen
+
+            try:
+                if pricing_result is not None:
+                    order.delivery_fee = pricing_result.delivery_fee
+                    order.surge_fee = pricing_result.surge_fee
+                    order.pricing_frozen = True
+
+                order.allocated_store_id = selected_store.store_id
+                self._lifecycle_service.transition(order, OrderState.ALLOCATED)
+            except Exception:
+                order.status = prev_status
+                order.allocated_store_id = prev_store_id
+                order.delivery_fee = prev_delivery_fee
+                order.surge_fee = prev_surge_fee
+                order.pricing_frozen = prev_pricing_frozen
+                raise
 
         return AllocationResult(
             selected_store=selected_store,

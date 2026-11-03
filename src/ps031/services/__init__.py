@@ -25,6 +25,12 @@ from ps031.services.picking_service import (
     PickingService,
     PickingServiceInterface,
 )
+from ps031.services.pricing_service import (
+    DeliveryPricingService,
+    PricingResult,
+    PricingService,
+    PricingServiceInterface,
+)
 from ps031.services.substitution_service import (
     SubstitutionResult,
     SubstitutionService,
@@ -39,6 +45,7 @@ __all__ = [
     "BatchingService",
     "BatchingServiceInterface",
     "DeliveryCompletionResult",
+    "DeliveryPricingService",
     "ETAResult",
     "FulfilmentEvaluation",
     "FulfilmentService",
@@ -47,6 +54,9 @@ __all__ = [
     "PickingScheduleResult",
     "PickingService",
     "PickingServiceInterface",
+    "PricingResult",
+    "PricingService",
+    "PricingServiceInterface",
     "StoreEvaluation",
     "SubstitutionResult",
     "SubstitutionService",
