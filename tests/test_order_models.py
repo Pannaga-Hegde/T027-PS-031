@@ -446,6 +446,9 @@ def test_order_rejects_non_boolean_flags(bad_bool):
     with pytest.raises(TypeError, match="boolean"):
         Order(order_id="o1", customer_id="c1", slow_delivery=bad_bool)
 
+    with pytest.raises(TypeError, match="boolean"):
+        Order(order_id="o1", customer_id="c1", pricing_frozen=bad_bool)
+
 
 def test_order_rejects_invalid_fees():
     """Monetary fees reject negative, bool, and non-finite values."""
@@ -463,3 +466,30 @@ def test_order_rejects_empty_allocated_store_id():
     """allocated_store_id when provided must not be empty."""
     with pytest.raises(ValueError, match="allocated_store_id must not be empty"):
         Order(order_id="o1", customer_id="c1", allocated_store_id="")
+
+
+def test_order_pricing_frozen_default_and_explicit():
+    order_default = Order(order_id="o_def", customer_id="c1")
+    assert order_default.pricing_frozen is False
+
+    order_frozen = Order(order_id="o_froz", customer_id="c1", pricing_frozen=True)
+    assert order_frozen.pricing_frozen is True
+
+
+def test_order_pricing_frozen_preserved_across_dataclass_reconstruction():
+    from dataclasses import asdict
+
+    order = Order(
+        order_id="o_recon",
+        customer_id="c1",
+        delivery_fee=Decimal("25.00"),
+        surge_fee=Decimal("15.00"),
+        pricing_frozen=True,
+    )
+    data = asdict(order)
+    assert data["pricing_frozen"] is True
+
+    reconstructed = Order(**data)
+    assert reconstructed.pricing_frozen is True
+    assert reconstructed.delivery_fee == Decimal("25.00")
+    assert reconstructed.surge_fee == Decimal("15.00")

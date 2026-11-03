@@ -353,6 +353,7 @@ class Order:
     slow_delivery: bool = False
     delivery_fee: Decimal = Decimal("0.00")
     surge_fee: Decimal = Decimal("0.00")
+    pricing_frozen: bool = False
     actual_delivery_time: datetime | None = None
     refund_amount: Decimal = Decimal("0.00")
     cancellation_fee: Decimal = Decimal("0.00")
@@ -380,6 +381,7 @@ class Order:
         slow_delivery: bool = False,
         delivery_fee: Decimal | int | float | str | None = None,
         surge_fee: Decimal | int | float | str | None = None,
+        pricing_frozen: bool = False,
         actual_delivery_time: datetime | None = None,
         refund_amount: Decimal | int | float | str = Decimal("0.00"),
         cancellation_fee: Decimal | int | float | str = Decimal("0.00"),
@@ -567,6 +569,12 @@ class Order:
                 f"free_coupon must be a boolean, got {type(free_coupon).__name__}."
             )
         self.free_coupon = free_coupon
+
+        if not isinstance(pricing_frozen, bool):
+            raise TypeError(
+                f"pricing_frozen must be a boolean, got {type(pricing_frozen).__name__}."
+            )
+        self.pricing_frozen = pricing_frozen
 
         # Fees
         for fee_name, fee_val in [
