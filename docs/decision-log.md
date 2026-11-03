@@ -68,7 +68,22 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 1. **Line-Fill Calculation (BR-02):** The glossary states line-fill requires an exact operational definition. Candidates are:
    - SKU line count ratio: $\frac{\text{fulfilled distinct SKUs}}{\text{requested distinct SKUs}}$
    - Unit quantity ratio: $\frac{\text{fulfilled units}}{\text{requested units}}$
+   *(Provisional implementation assumption adopted in DEC-09 pending mentor confirmation: unit quantity ratio with per-SKU line aggregation).*
 2. **Deterministic Tie-Breaking (BR-02):** When stores tie on stock, distance, and picking load, confirm if lexicographical `store_id` is the final tie-breaker.
+   *(Provisional implementation assumption adopted in DEC-09 pending mentor confirmation: lexicographical `store_id` ascending).*
 3. **Dispatch of Single Orders (BR-08):** If an order cannot be batched with any nearby order, confirm whether it dispatches immediately upon picking completion or after the 3-minute waiting timer.
 4. **Command Schema & Output (FR-11):** Confirm exact command names and whether the order trace is expected on standard output or written to an output file.
 **Status:** Open; documented for mentor review.
+
+## DEC-09 — Store Allocation Line-Fill and Deterministic Tie-Breaking
+
+**Date:** 3 November 2026
+**Decision:** For BR-02 store selection:
+1. Calculate line-fill ratio using the unit quantity formula $\text{line\_fill\_ratio} = \frac{\text{total\_fulfillable\_units}}{\text{total\_requested\_units}}$, aggregating requested quantities per SKU across order lines before evaluating against store inventory.
+2. Break ties using:
+   - Shortest rounded Haversine distance (ascending),
+   - Then lowest current slot load (ascending, defaulting missing store entries to 0),
+   - Finally, lexicographically smallest `store_id` (ascending).
+**Reason:** Provides deterministic, reproducible order allocation (NFR-02) and prevents duplicate order lines from multi-counting available stock.
+**Alternatives:** SKU line-count ratio; arbitrary non-deterministic selection.
+**Status:** Provisional implementation assumption pending mentor confirmation (does not claim mentor approval).
