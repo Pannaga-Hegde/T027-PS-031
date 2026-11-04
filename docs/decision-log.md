@@ -123,3 +123,21 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 **Reason:** Ensures safe, predictable, reproducible rider dispatching and SLA guarantees without violating dark store allocation, picking capacity, or vehicle capacity constraints.
 **Alternatives:** TSP route optimization; dynamic re-clustering; rounded Haversine distance checks.
 **Status:** Accepted.
+
+## DEC-12 — SLA Compensation and Lateness Rules
+
+**Date:** 4 November 2026
+**Decision:** For BR-09 (SLA Compensation):
+1. **Lateness Determination:** Lateness is measured as $\Delta t = T_{\text{actual}} - T_{\text{promise}}$, calculated against the order's final `promised_eta` using `actual_delivery_time`.
+2. **Compensation Tiers:**
+   - On-time or less than 5 minutes late ($\Delta t < 300\text{ s}$): ₹0 wallet credit, no coupon.
+   - Exactly 5 through exactly 10 minutes late ($300\text{ s} \le \Delta t \le 600\text{ s}$): ₹25 wallet credit (`Decimal("25.00")`), no coupon.
+   - More than 10 minutes late ($\Delta t > 600\text{ s}$): ₹50 wallet credit (`Decimal("50.00")`) and a free-delivery coupon (`free_coupon = True`).
+3. **Delayed-Promise Exemption:** Orders flagged with `delayed_promise = True` receive no compensation when lateness is $\le 5\text{ minutes}$ ($\Delta t \le 300\text{ s}$). When lateness strictly exceeds 5 minutes, standard compensation brackets apply without shifting the brackets ($5\text{m} < \Delta t \le 10\text{m} \to ₹25$; $\Delta t > 10\text{m} \to ₹50\text{ + coupon}$).
+4. **Preservation of Existing Wallet Credits:** When compensation is awarded, the credit is added to `order.wallet_credit` rather than overwriting existing balances.
+5. **Idempotency and Audit Ledger:** `CompensationService` maintains an order-ID-based ledger (`_compensations`) preventing duplicate compensation on repeated invocations.
+6. **Preconditions & Immutability:** Calculating compensation does not mutate the `Order`. Applying compensation strictly requires `OrderState.DELIVERED`, validated timestamps, and timezone parity.
+7. **Monetary Precision:** All compensation calculations and wallet adjustments strictly use Python `Decimal`.
+**Reason:** Ensures customer SLA guarantees, accurate financial adjustments, and reproducible order traces without double-crediting or violating domain lifecycle boundaries.
+**Alternatives:** Floating-point monetary arithmetic; shifting brackets for delayed promises; overwriting wallet balances; calculating lateness against unadjusted initial ETAs.
+**Status:** Accepted.
