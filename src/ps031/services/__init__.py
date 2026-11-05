@@ -4,6 +4,14 @@ from ps031.services.allocation_service import (
     AllocationServiceInterface,
     StoreEvaluation,
 )
+from ps031.services.cancellation_service import (
+    CancellationResult,
+    CancellationService,
+)
+from ps031.services.fulfilment_orchestrator import (
+    FulfilmentOrchestrator,
+    FulfilmentResult,
+)
 from ps031.services.fulfilment_service import (
     FulfilmentEvaluation,
     FulfilmentService,
@@ -33,9 +41,13 @@ __all__ = [
     "AllocationResult",
     "AllocationService",
     "AllocationServiceInterface",
+    "CancellationResult",
+    "CancellationService",
     "DeliveryPricingService",
     "ETAResult",
     "FulfilmentEvaluation",
+    "FulfilmentOrchestrator",
+    "FulfilmentResult",
     "FulfilmentService",
     "LifecycleTransitionInterface",
     "LifecycleTransitionService",
