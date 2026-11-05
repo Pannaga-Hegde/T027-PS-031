@@ -40,6 +40,11 @@ from ps031.services.substitution_service import (
     SubstitutionResult,
     SubstitutionService,
 )
+from ps031.services.weather_hold_service import (
+    WeatherHoldResult,
+    WeatherHoldService,
+    WeatherHoldServiceInterface,
+)
 
 __all__ = [
     "AllocationResult",
@@ -68,4 +73,7 @@ __all__ = [
     "StoreEvaluation",
     "SubstitutionResult",
     "SubstitutionService",
+    "WeatherHoldResult",
+    "WeatherHoldService",
+    "WeatherHoldServiceInterface",
 ]
