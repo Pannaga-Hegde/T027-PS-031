@@ -4,9 +4,21 @@ from ps031.services.allocation_service import (
     AllocationServiceInterface,
     StoreEvaluation,
 )
+from ps031.services.batching_service import (
+    BatchDispatchResult,
+    BatchEvaluation,
+    BatchingService,
+    BatchingServiceInterface,
+    DeliveryCompletionResult,
+)
 from ps031.services.cancellation_service import (
     CancellationResult,
     CancellationService,
+)
+from ps031.services.compensation_service import (
+    CompensationResult,
+    CompensationService,
+    CompensationServiceInterface,
 )
 from ps031.services.fulfilment_orchestrator import (
     FulfilmentOrchestrator,
@@ -36,13 +48,26 @@ from ps031.services.substitution_service import (
     SubstitutionResult,
     SubstitutionService,
 )
+from ps031.services.weather_hold_service import (
+    WeatherHoldResult,
+    WeatherHoldService,
+    WeatherHoldServiceInterface,
+)
 
 __all__ = [
     "AllocationResult",
     "AllocationService",
     "AllocationServiceInterface",
+    "BatchDispatchResult",
+    "BatchEvaluation",
+    "BatchingService",
+    "BatchingServiceInterface",
     "CancellationResult",
     "CancellationService",
+    "CompensationResult",
+    "CompensationService",
+    "CompensationServiceInterface",
+    "DeliveryCompletionResult",
     "DeliveryPricingService",
     "ETAResult",
     "FulfilmentEvaluation",
@@ -60,4 +85,7 @@ __all__ = [
     "StoreEvaluation",
     "SubstitutionResult",
     "SubstitutionService",
+    "WeatherHoldResult",
+    "WeatherHoldService",
+    "WeatherHoldServiceInterface",
 ]
