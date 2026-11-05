@@ -141,3 +141,22 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 **Reason:** Ensures customer SLA guarantees, accurate financial adjustments, and reproducible order traces without double-crediting or violating domain lifecycle boundaries.
 **Alternatives:** Floating-point monetary arithmetic; shifting brackets for delayed promises; overwriting wallet balances; calculating lateness against unadjusted initial ETAs.
 **Status:** Accepted.
+
+
+## DEC-13 — Weather Hold Operational Rules
+
+**Date:** 5 November 2026
+**Decision:** For BR-11 (Weather Hold):
+1. **Hold Duration:** A weather hold blocks new order allocations at the affected dark store for exactly 20 minutes (`HOLD_DURATION_MINUTES = 20`), expiring at $T_{\text{hold\_until}} = T_{\text{start}} + 20\text{ minutes}$.
+2. **Evaluation Boundary:** In accordance with BR-01, an order allocation is blocked while $T_{\text{hold\_until}} > T_{\text{eval}}$. At the exact expiration boundary ($T_{\text{eval}} == T_{\text{hold\_until}}$), the hold is no longer active, and allocation is permitted.
+3. **Overlapping Holds:** If a subsequent weather hold event is triggered for a store whose existing `weather_hold_until` expires later than the proposed expiration ($T_{\text{existing}} > T_{\text{new}}$), the existing later expiration is preserved and never shortened.
+4. **Order Eligibility for ETA Extension:** Orders allocated to the affected store receive a 10-minute delivery promise extension (`ETA_EXTENSION_MINUTES = 10`) if and only if:
+   - `order.allocated_store_id == store.store_id`
+   - `order.status` is in `{ALLOCATED, PICKING, READY_FOR_DISPATCH}`
+   Orders in states `RECEIVED`, `REJECTED`, `DISPATCHED`, `DELIVERED`, or `CANCELLED` are not extended.
+5. **Complete Atomicity & Explicit Datetime Validation:** Every eligible order must have a valid `datetime` `promised_eta` and matching timezone parity with the event timestamp. Store `weather_hold_until` is validated as a `datetime` or `None`. Hold expiration and all order ETA extensions are pre-calculated before applying any mutations; if any calculation fails (including `OverflowError`), the operation aborts with zero mutations to the store or any candidate orders.
+6. **SLA Compensation Exemption:** The 10-minute weather extension modifies `order.promised_eta` directly. Because BR-09 SLA compensation is evaluated against the order's final `promised_eta`, deliveries made within the extended delivery window do not incur SLA compensation penalties.
+7. **Idempotency & Payload Consistency:** `WeatherHoldService` maintains an event registry (`_processed_events`) keyed by explicit `event_id` or deterministic fallback (`{store_id}:{started_at.isoformat()}`). If an existing event ID is reused, both `store_id` and `started_at` are verified against the original event (raising `ValueError` if either differs), preventing corrupted event reuse while safely preserving idempotency for exact duplicate invocations.
+**Reason:** Ensures customer safety, rider safety, and realistic delivery commitments during severe weather disruptions without generating false SLA compensation claims or corrupted scheduling state.
+**Alternatives:** Dynamic hold durations; extending dispatched orders in transit; shifting SLA compensation calculation baselines.
+**Status:** Accepted.
