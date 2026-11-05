@@ -11,10 +11,18 @@ from ps031.services.batching_service import (
     BatchingServiceInterface,
     DeliveryCompletionResult,
 )
+from ps031.services.cancellation_service import (
+    CancellationResult,
+    CancellationService,
+)
 from ps031.services.compensation_service import (
     CompensationResult,
     CompensationService,
     CompensationServiceInterface,
+)
+from ps031.services.fulfilment_orchestrator import (
+    FulfilmentOrchestrator,
+    FulfilmentResult,
 )
 from ps031.services.fulfilment_service import (
     FulfilmentEvaluation,
@@ -54,6 +62,8 @@ __all__ = [
     "BatchEvaluation",
     "BatchingService",
     "BatchingServiceInterface",
+    "CancellationResult",
+    "CancellationService",
     "CompensationResult",
     "CompensationService",
     "CompensationServiceInterface",
@@ -61,6 +71,8 @@ __all__ = [
     "DeliveryPricingService",
     "ETAResult",
     "FulfilmentEvaluation",
+    "FulfilmentOrchestrator",
+    "FulfilmentResult",
     "FulfilmentService",
     "LifecycleTransitionInterface",
     "LifecycleTransitionService",
