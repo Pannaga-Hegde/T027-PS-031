@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 import pytest
 
@@ -796,3 +796,161 @@ def test_substitution_candidates_reflect_live_stock_changes(
     )
     updated_skus = {c.sku for c in updated_candidates}
     assert "SKU-MILK-NANDINI" not in updated_skus
+
+
+def test_get_reservations_for_order_normal(inventory_service):
+    """Retrieve all reservations belonging to a specific order as detached copies."""
+    # Create 2 reservations for ord_alpha
+    r1 = inventory_service.reserve_stock("store_koramangala", "ord_alpha", "SKU-MILK-AMUL", 2)
+    r2 = inventory_service.reserve_stock("store_koramangala", "ord_alpha", "SKU-BREAD-WHEAT", 1)
+    # Create 1 reservation for ord_beta
+    r3 = inventory_service.reserve_stock("store_koramangala", "ord_beta", "SKU-MILK-AMUL", 1)
+
+    alpha_res = inventory_service.get_reservations_for_order("ord_alpha")
+    assert len(alpha_res) == 2
+    res_ids = {r.reservation_id for r in alpha_res}
+    assert res_ids == {r1.reservation_id, r2.reservation_id}
+    assert r3.reservation_id not in res_ids
+    assert all(r.order_id == "ord_alpha" for r in alpha_res)
+
+
+def test_get_reservations_for_order_returns_detached_copies(inventory_service):
+    """Returned reservations are detached copies; modifying them does not mutate internal state."""
+    r = inventory_service.reserve_stock("store_koramangala", "ord_detach_check", "SKU-MILK-AMUL", 4)
+
+    results = inventory_service.get_reservations_for_order("ord_detach_check")
+    assert len(results) == 1
+    ret = results[0]
+
+    # Object identity verification
+    internal_res = inventory_service._reservations[r.reservation_id]
+    assert ret is not internal_res
+
+    # Mutate all fields on the returned copy
+    ret.reserved_quantity = 99999
+    ret.requested_quantity = 88888
+    ret.status = ReservationStatus.RELEASED
+    ret.sku = "SKU-TAMPERED"
+
+    # Verify internal state in service is completely untouched
+    refreshed_internal = inventory_service._reservations[r.reservation_id]
+    assert refreshed_internal.reserved_quantity == 4
+    assert refreshed_internal.requested_quantity == 4
+    assert refreshed_internal.status == ReservationStatus.PENDING
+    assert refreshed_internal.sku == "SKU-MILK-AMUL"
+
+    # Verify get_reservation() returns the pristine state
+    refreshed_copy = inventory_service.get_reservation(r.reservation_id)
+    assert refreshed_copy.reserved_quantity == 4
+    assert refreshed_copy.status == ReservationStatus.PENDING
+
+    # Verify subsequent release uses original internal quantity (10 - 4 + 4 = 10)
+    inventory_service.release_reservation(r.reservation_id)
+    assert inventory_service.get_stock("store_koramangala", "SKU-MILK-AMUL") == 10
+
+
+def test_get_reservations_for_order_deterministic_sorting(inventory_service):
+    """Reservations are deterministically sorted by created_at ascending, then reservation_id."""
+    r1 = inventory_service.reserve_stock("store_koramangala", "ord_sort", "SKU-MILK-AMUL", 1)
+    r2 = inventory_service.reserve_stock("store_koramangala", "ord_sort", "SKU-BREAD-WHEAT", 1)
+    r3 = inventory_service.reserve_stock("store_koramangala", "ord_sort", "SKU-MILK-NANDINI", 1)
+
+    t0 = datetime(2026, 11, 6, 10, 0, 0)
+    # Assign distinct timestamps out of order to verify sorting
+    inventory_service._reservations[r1.reservation_id].created_at = t0 + timedelta(seconds=30)
+    inventory_service._reservations[r2.reservation_id].created_at = t0 + timedelta(seconds=10)
+    inventory_service._reservations[r3.reservation_id].created_at = t0 + timedelta(seconds=20)
+
+    res_list = inventory_service.get_reservations_for_order("ord_sort")
+    assert [r.reservation_id for r in res_list] == [
+        r2.reservation_id,
+        r3.reservation_id,
+        r1.reservation_id,
+    ]
+
+    # Test tie-breaking by reservation_id when created_at is identical
+    inventory_service._reservations[r1.reservation_id].created_at = t0
+    inventory_service._reservations[r2.reservation_id].created_at = t0
+    inventory_service._reservations[r3.reservation_id].created_at = t0
+
+    expected_id_order = sorted([r1.reservation_id, r2.reservation_id, r3.reservation_id])
+    res_list_tied = inventory_service.get_reservations_for_order("ord_sort")
+    assert [r.reservation_id for r in res_list_tied] == expected_id_order
+
+
+def test_get_reservations_for_order_lifecycle_status_filtering(inventory_service):
+    """
+    Query selects verified active status (ReservationStatus.PENDING) by default,
+    and supports explicit lifecycle status filtering or unfiltered queries.
+    """
+    # Create 3 reservations for ord_lifecycle
+    r1 = inventory_service.reserve_stock("store_koramangala", "ord_lifecycle", "SKU-MILK-AMUL", 1)
+    r2 = inventory_service.reserve_stock("store_koramangala", "ord_lifecycle", "SKU-BREAD-WHEAT", 1)
+    r3 = inventory_service.reserve_stock("store_koramangala", "ord_lifecycle", "SKU-MILK-NANDINI", 1)
+
+    # Transition r2 to COMMITTED, r3 to RELEASED; keep r1 as PENDING (active)
+    inventory_service.commit_reservation(r2.reservation_id)
+    inventory_service.release_reservation(r3.reservation_id)
+
+    # Default query selects only active PENDING reservations
+    active_res = inventory_service.get_reservations_for_order("ord_lifecycle")
+    assert len(active_res) == 1
+    assert active_res[0].reservation_id == r1.reservation_id
+    assert active_res[0].status == ReservationStatus.PENDING
+
+    # Explicit query for COMMITTED
+    committed_res = inventory_service.get_reservations_for_order(
+        "ord_lifecycle", status=ReservationStatus.COMMITTED
+    )
+    assert len(committed_res) == 1
+    assert committed_res[0].reservation_id == r2.reservation_id
+    assert committed_res[0].status == ReservationStatus.COMMITTED
+
+    # Explicit query for RELEASED
+    released_res = inventory_service.get_reservations_for_order(
+        "ord_lifecycle", status=ReservationStatus.RELEASED
+    )
+    assert len(released_res) == 1
+    assert released_res[0].reservation_id == r3.reservation_id
+    assert released_res[0].status == ReservationStatus.RELEASED
+
+    # Query with status=None returns all reservations regardless of lifecycle status
+    all_res = inventory_service.get_reservations_for_order("ord_lifecycle", status=None)
+    assert len(all_res) == 3
+    assert {r.reservation_id for r in all_res} == {
+        r1.reservation_id,
+        r2.reservation_id,
+        r3.reservation_id,
+    }
+
+    # Query with string status 'PENDING'
+    str_res = inventory_service.get_reservations_for_order("ord_lifecycle", status="PENDING")
+    assert len(str_res) == 1
+    assert str_res[0].reservation_id == r1.reservation_id
+
+    # Query with invalid status string raises ValueError
+    with pytest.raises(ValueError, match="Unknown ReservationStatus 'RESERVED'"):
+        inventory_service.get_reservations_for_order("ord_lifecycle", status="RESERVED")
+
+    # Query with invalid status type raises TypeError
+    with pytest.raises(TypeError, match="status must be a ReservationStatus or None"):
+        inventory_service.get_reservations_for_order("ord_lifecycle", status=123)
+
+
+def test_get_reservations_for_order_empty_for_unknown_order(inventory_service):
+    """Querying an unknown order_id returns an empty list."""
+    assert inventory_service.get_reservations_for_order("ord_unknown_999") == []
+
+
+@pytest.mark.parametrize("invalid_order_id", [True, False, None, 123, 4.5, [], {}])
+def test_get_reservations_for_order_rejects_invalid_types(inventory_service, invalid_order_id):
+    """Rejects non-string and boolean order identifiers with TypeError."""
+    with pytest.raises(TypeError, match="order_id must be a string"):
+        inventory_service.get_reservations_for_order(invalid_order_id)
+
+
+@pytest.mark.parametrize("empty_order_id", ["", "   ", "   \t  \n "])
+def test_get_reservations_for_order_rejects_empty_whitespace(inventory_service, empty_order_id):
+    """Rejects empty or whitespace order identifiers with ValueError."""
+    with pytest.raises(ValueError, match="order_id must not be empty or whitespace"):
+        inventory_service.get_reservations_for_order(empty_order_id)

@@ -366,5 +366,3 @@ def test_invalid_store_reservation_rejected_and_retry_with_valid_succeeds():
     assert order.items[0].fulfilled_quantity == 5
     assert valid_res.reservation_id in result.applied_reservation_ids
     assert inventory.get_reservation(valid_res.reservation_id).status == ReservationStatus.COMMITTED
-
-

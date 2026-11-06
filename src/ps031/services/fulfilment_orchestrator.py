@@ -4,7 +4,10 @@ from typing import Sequence
 from ps031.models.inventory import InventoryItem
 from ps031.models.order import Order, OrderItem, SubstitutionPolicy
 from ps031.models.order_state import OrderState
-from ps031.services.cancellation_service import CancellationResult, CancellationService
+from ps031.services.fulfilment_cancellation_service import (
+    FulfilmentCancellationResult,
+    FulfilmentCancellationService,
+)
 from ps031.services.fulfilment_service import FulfilmentEvaluation, FulfilmentService
 from ps031.services.inventory_service import (
     InventoryService,
@@ -23,7 +26,7 @@ class FulfilmentResult:
     newly_applied_reservation_ids: tuple[str, ...]
     substitution_results: tuple[SubstitutionResult, ...]
     evaluation: FulfilmentEvaluation
-    cancellation_result: CancellationResult | None
+    cancellation_result: FulfilmentCancellationResult | None
 
 
 class FulfilmentOrchestrator:
@@ -45,12 +48,12 @@ class FulfilmentOrchestrator:
         inventory_service: InventoryService,
         substitution_service: SubstitutionService | None = None,
         fulfilment_service: FulfilmentService | None = None,
-        cancellation_service: CancellationService | None = None,
+        cancellation_service: FulfilmentCancellationService | None = None,
     ) -> None:
         self.inventory_service = inventory_service
         self.substitution_service = substitution_service or SubstitutionService()
         self.fulfilment_service = fulfilment_service or FulfilmentService()
-        self.cancellation_service = cancellation_service or CancellationService(
+        self.cancellation_service = cancellation_service or FulfilmentCancellationService(
             inventory_service=inventory_service,
             fulfilment_service=self.fulfilment_service,
         )

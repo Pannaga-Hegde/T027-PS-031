@@ -9,7 +9,7 @@ from ps031.models.order import Order, OrderItem
 from ps031.models.order_state import OrderState
 from ps031.models.product import Product
 from ps031.models.store import Store
-from ps031.services.cancellation_service import CancellationService
+from ps031.services.fulfilment_cancellation_service import FulfilmentCancellationService
 from ps031.services.inventory_service import InventoryService, ReservationStatus
 
 
@@ -45,7 +45,7 @@ def cancellation_setup():
         ],
         status=OrderState.ALLOCATED,
     )
-    service = CancellationService(inventory)
+    service = FulfilmentCancellationService(inventory)
     return order, store, inventory, reservation, service
 
 
@@ -164,4 +164,3 @@ def test_already_cancelled_order_with_pending_reservations_releases_reservations
     assert second.refund_amount == Decimal("100.00")
     assert len(service.refund_ledger) == 1
     assert store.inventory["SKU-1"] == 10
-
