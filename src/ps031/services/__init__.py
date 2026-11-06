@@ -25,6 +25,14 @@ from ps031.services.compensation_service import (
     CompensationService,
     CompensationServiceInterface,
 )
+from ps031.services.fulfilment_cancellation_service import (
+    FulfilmentCancellationResult,
+    FulfilmentCancellationService,
+)
+from ps031.services.fulfilment_orchestrator import (
+    FulfilmentOrchestrator,
+    FulfilmentResult,
+)
 from ps031.services.fulfilment_service import (
     FulfilmentEvaluation,
     FulfilmentService,
@@ -73,7 +81,11 @@ __all__ = [
     "DeliveryCompletionResult",
     "DeliveryPricingService",
     "ETAResult",
+    "FulfilmentCancellationResult",
+    "FulfilmentCancellationService",
     "FulfilmentEvaluation",
+    "FulfilmentOrchestrator",
+    "FulfilmentResult",
     "FulfilmentService",
     "LifecycleTransitionInterface",
     "LifecycleTransitionService",

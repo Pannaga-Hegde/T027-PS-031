@@ -421,20 +421,23 @@ def test_process_order_picking_and_eta_coordinates_both(make_store, make_order, 
     store = make_store(picking_capacity=1)
     slot_time = datetime(2026, 11, 3, 10, 2, 0)
 
-    # First order occupies slot
+    # First order occupies slot (10:00:00 - 10:09:59)
     o1 = make_order(order_id="o1", order_time=slot_time)
     service.process_order_picking_and_eta(store, o1)
 
-    # Second order overflows: 10 min delay + 2 picking + 0 travel = 12 min total duration
+    # Second order overflows to 10:10:00 slot.
+    # Mentor BR-04 rule: picking_start = max(10:02:00, 10:10:00) = 10:10:00.
+    # Picking finishes at 10:12:00. Travel = 0.
+    # Promised ETA = 10:12:00. Duration = 10 min.
     o2 = make_order(order_id="o2", order_time=slot_time)
     sched_res, eta_res = service.process_order_picking_and_eta(store, o2)
 
     assert sched_res.overflow_count == 1
     assert sched_res.slot_delay_minutes == 10
     assert eta_res.slot_delay_minutes == 10
-    assert eta_res.total_duration_minutes == 12
-    assert eta_res.promised_eta == slot_time + timedelta(minutes=12)
-    assert eta_res.is_delayed_promise is True
+    assert eta_res.total_duration_minutes == 10
+    assert eta_res.promised_eta == datetime(2026, 11, 3, 10, 12, 0)
+    assert eta_res.is_delayed_promise is False
 
 
 def test_recalculate_eta_preserves_slot_delay(make_store, make_order, store_loc):
@@ -447,7 +450,9 @@ def test_recalculate_eta_preserves_slot_delay(make_store, make_order, store_loc)
     o1 = make_order(order_id="o1", order_time=slot_time)
     service.schedule_picking(store, o1)
 
-    # Second order has 1 overflow (10 min delay)
+    # Second order has 1 overflow (10 min delay, assigned slot 10:10:00)
+    # arrives 10:05:00, picking_start = max(10:05:00, 10:10:00) = 10:10:00
+    # picking_end = 10:12:00, travel = 3m -> promised_eta = 10:15:00 (duration = 10 min)
     o2 = make_order(
         order_id="o2",
         delivery_location=_coord_north(store_loc, 2.0),  # 3 min travel
@@ -455,14 +460,17 @@ def test_recalculate_eta_preserves_slot_delay(make_store, make_order, store_loc)
     )
     sched_res, eta_res = service.process_order_picking_and_eta(store, o2)
     assert eta_res.slot_delay_minutes == 10
-    assert eta_res.total_duration_minutes == 15  # 10 delay + 2 pick + 3 travel
+    assert eta_res.total_duration_minutes == 10
+    assert eta_res.promised_eta == datetime(2026, 11, 3, 10, 15, 0)
+    assert eta_res.is_delayed_promise is False
 
-    # BatchingService now adds 1 earlier drop
+    # BatchingService now adds 1 earlier drop (+2 min)
+    # promised_eta = 10:17:00 (duration = 12 min > 10 min -> delayed)
     recalc_res = service.recalculate_eta(store, o2, earlier_drops=1)
     assert recalc_res.slot_delay_minutes == 10
     assert recalc_res.earlier_drops_minutes == 2
-    assert recalc_res.total_duration_minutes == 17  # 10 delay + 2 pick + 3 travel + 2 drop
-    assert o2.promised_eta == slot_time + timedelta(minutes=17)
+    assert recalc_res.total_duration_minutes == 12
+    assert o2.promised_eta == datetime(2026, 11, 3, 10, 17, 0)
 
 
 def test_recalculate_eta_without_prior_schedule_defaults_delay_to_zero(
@@ -481,6 +489,109 @@ def test_recalculate_eta_without_prior_schedule_defaults_delay_to_zero(
     assert res.slot_delay_minutes == 0
     assert res.earlier_drops_minutes == 2
     assert res.total_duration_minutes == 4  # 0 delay + 2 pick + 0 travel + 2 drop
+
+
+def test_eta_mentor_ec03_picking_start_max_allocation_and_slot(make_store, make_order):
+    """EC-03: Order placed just before closing overflows; picking starts at slot start."""
+    service = PickingService()
+    ds04_loc = Coordinates(12.930800, 77.583800)
+    store = Store(
+        store_id="DS-04",
+        name="DS-04 Jayanagar",
+        location=ds04_loc,
+        operating_hours=OperatingHours(open_time=time(7, 0), close_time=time(20, 30)),
+        picking_capacity=4,
+    )
+
+    # 4 orders fill the 20:20:00 slot
+    for i in range(1, 5):
+        ord_i = make_order(
+            order_id=f"ORD-003{5+i}",
+            order_time=datetime(2026, 10, 16, 20, 20 + i, 0),
+        )
+        service.schedule_picking(store, ord_i)
+
+    assert service.get_slot_load("DS-04", datetime(2026, 10, 16, 20, 20, 0)) == 4
+
+    # ORD-0041 placed at 20:29:30, customer at (12.923072, 77.575297) -> 1.26 km, travel = 2m
+    ord_41_loc = Coordinates(12.923072, 77.575297)
+    ord_41 = make_order(
+        order_id="ORD-0041",
+        delivery_location=ord_41_loc,
+        order_time=datetime(2026, 10, 16, 20, 29, 30),
+    )
+
+    sched_res, eta_res = service.process_order_picking_and_eta(store, ord_41)
+
+    # Must overflow into 20:30:00 slot
+    assert sched_res.overflow_count == 1
+    assert sched_res.assigned_slot_start == datetime(2026, 10, 16, 20, 30, 0)
+    assert sched_res.slot_delay_minutes == 10
+
+    # Under mentor rule: picking starts at max(20:29:30, 20:30:00) = 20:30:00
+    # picking ends at 20:32:00, travel = 2 min -> promised ETA = 20:34:00
+    assert eta_res.picking_minutes == 2
+    assert eta_res.travel_minutes == 2
+    assert eta_res.promised_eta == datetime(2026, 10, 16, 20, 34, 0)
+    assert ord_41.promised_eta == datetime(2026, 10, 16, 20, 34, 0)
+    # Total duration from 20:29:30 to 20:34:00 is 4.5m -> ceil = 5m
+    assert eta_res.total_duration_minutes == 5
+    assert eta_res.is_delayed_promise is False
+
+
+def test_eta_multi_slot_cascading_overflow_picking_start(make_store, make_order):
+    """Cascading overflow across multiple slots sets picking start to final assigned slot start."""
+    service = PickingService()
+    store = make_store(picking_capacity=1)
+
+    t_10_00 = datetime(2026, 11, 3, 10, 0, 0)
+    t_10_10 = datetime(2026, 11, 3, 10, 10, 0)
+
+    # Slot 10:00 and slot 10:10 are both filled
+    o1 = make_order(order_id="o1", order_time=t_10_00)
+    service.schedule_picking(store, o1)
+    o2 = make_order(order_id="o2", order_time=t_10_10)
+    service.schedule_picking(store, o2)
+
+    # o3 arrives at 10:04:00, slot 10:00 is full, slot 10:10 is full -> rolls to 10:20:00
+    o3 = make_order(order_id="o3", order_time=datetime(2026, 11, 3, 10, 4, 0))
+    sched_res, eta_res = service.process_order_picking_and_eta(store, o3)
+
+    assert sched_res.overflow_count == 2
+    assert sched_res.assigned_slot_start == datetime(2026, 11, 3, 10, 20, 0)
+    assert sched_res.slot_delay_minutes == 20
+
+    # picking starts at max(10:04:00, 10:20:00) = 10:20:00
+    # picking ends at 10:22:00, travel = 0 -> promised ETA = 10:22:00
+    assert eta_res.promised_eta == datetime(2026, 11, 3, 10, 22, 0)
+    # Duration: 10:22:00 - 10:04:00 = 18 minutes > 10 min -> delayed promise
+    assert eta_res.total_duration_minutes == 18
+    assert eta_res.is_delayed_promise is True
+
+
+def test_eta_assigned_slot_start_validation(make_store, make_order):
+    """calculate_eta validates assigned_slot_start type and timezone parity."""
+    service = PickingService()
+    store = make_store()
+    order = make_order(order_time=datetime(2026, 11, 3, 10, 4, 0))
+
+    # Invalid type
+    with pytest.raises(TypeError, match="assigned_slot_start must be a datetime, got bool"):
+        service.calculate_eta(store, order, assigned_slot_start=True)  # type: ignore
+
+    with pytest.raises(TypeError, match="assigned_slot_start must be a datetime, got str"):
+        service.calculate_eta(store, order, assigned_slot_start="2026-11-03 10:10:00")  # type: ignore
+
+    # Timezone mismatch: naive order with aware assigned_slot_start
+    aware_slot = datetime(2026, 11, 3, 10, 10, 0, tzinfo=timezone.utc)
+    with pytest.raises(TypeError, match="Cannot compare timezone-naive base_time with timezone-aware assigned_slot_start"):
+        service.calculate_eta(store, order, assigned_slot_start=aware_slot)
+
+    # Timezone mismatch: aware order with naive assigned_slot_start
+    aware_order = make_order(order_time=datetime(2026, 11, 3, 10, 4, 0, tzinfo=timezone.utc))
+    naive_slot = datetime(2026, 11, 3, 10, 10, 0)
+    with pytest.raises(TypeError, match="Cannot compare timezone-aware base_time with timezone-naive assigned_slot_start"):
+        service.calculate_eta(store, aware_order, assigned_slot_start=naive_slot)
 
 
 # ---------------------------------------------------------------------------

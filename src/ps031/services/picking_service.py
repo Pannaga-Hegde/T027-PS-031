@@ -131,6 +131,7 @@ class PickingServiceInterface(Protocol):
         earlier_drops: int = 0,
         slot_delay_minutes: int = 0,
         reference_time: datetime | None = None,
+        assigned_slot_start: datetime | None = None,
     ) -> ETAResult:
         """Compute the estimated delivery time for an order under BR-04."""
         ...
@@ -252,13 +253,17 @@ class PickingService:
         earlier_drops: int = 0,
         slot_delay_minutes: int = 0,
         reference_time: datetime | None = None,
+        assigned_slot_start: datetime | None = None,
     ) -> ETAResult:
         """Compute the estimated delivery time for an order under BR-04.
 
         Formula:
-        total_duration = slot_delay_minutes + 2 + ceil(1.5 * distance_km) + (2 * earlier_drops)
-        promised_eta = base_time + timedelta(minutes=total_duration)
-        delayed_promise = (total_duration > 10) and not order.slow_delivery
+        picking_start = max(base_time, assigned_slot_start) if assigned_slot_start is provided
+                        else base_time + timedelta(minutes=slot_delay_minutes)
+        picking_end = picking_start + timedelta(minutes=PICKING_TIME_MINUTES)
+        promised_eta = picking_end + timedelta(minutes=travel_minutes + earlier_drops_minutes)
+        total_duration_minutes = ceil((promised_eta - base_time) / 60)
+        delayed_promise = (total_duration_minutes > 10) and not order.slow_delivery
         """
         if isinstance(store, bool) or not isinstance(store, Store):
             raise TypeError(f"store must be a Store instance, got {type(store).__name__}.")
@@ -283,6 +288,14 @@ class PickingService:
                 f"slot_delay_minutes cannot be negative, got {slot_delay_minutes}."
             )
 
+        if assigned_slot_start is not None:
+            if isinstance(assigned_slot_start, bool) or not isinstance(
+                assigned_slot_start, datetime
+            ):
+                raise TypeError(
+                    f"assigned_slot_start must be a datetime, got {type(assigned_slot_start).__name__}."
+                )
+
         if order.delivery_location is None:
             raise ValueError("order.delivery_location is required to calculate ETA.")
         if isinstance(order.delivery_location, bool) or not isinstance(
@@ -296,15 +309,36 @@ class PickingService:
             order, reference_time, "ETA calculation"
         )
 
+        if assigned_slot_start is not None:
+            _validate_timezone_parity(
+                base_time, assigned_slot_start, "base_time", "assigned_slot_start"
+            )
+
         distance_km = haversine_distance(store.location, order.delivery_location)
         travel_minutes = math.ceil(TRAVEL_TIME_PER_KM * distance_km)
         picking_minutes = PICKING_TIME_MINUTES
         earlier_drops_minutes = ADDITIONAL_DROP_DELAY_MINUTES * earlier_drops
-        total_duration_minutes = (
-            slot_delay_minutes + picking_minutes + travel_minutes + earlier_drops_minutes
+
+        if assigned_slot_start is not None:
+            picking_start = max(base_time, assigned_slot_start)
+            if slot_delay_minutes == 0:
+                initial_slot = get_slot_start(base_time)
+                if assigned_slot_start > initial_slot:
+                    slot_delay_minutes = max(
+                        0,
+                        int((assigned_slot_start - initial_slot).total_seconds() // 60),
+                    )
+        else:
+            picking_start = base_time + timedelta(minutes=slot_delay_minutes)
+
+        picking_end = picking_start + timedelta(minutes=picking_minutes)
+        promised_eta = picking_end + timedelta(
+            minutes=travel_minutes + earlier_drops_minutes
         )
 
-        promised_eta = base_time + timedelta(minutes=total_duration_minutes)
+        total_duration_minutes = int(
+            math.ceil((promised_eta - base_time).total_seconds() / 60.0)
+        )
         is_delayed = (
             total_duration_minutes > MAX_NORMAL_DELIVERY_MINUTES
         ) and not order.slow_delivery
@@ -382,6 +416,7 @@ class PickingService:
                 earlier_drops=earlier_drops,
                 slot_delay_minutes=schedule_res.slot_delay_minutes,
                 reference_time=reference_time,
+                assigned_slot_start=schedule_res.assigned_slot_start,
             )
         except Exception:
             if not was_already_scheduled:
@@ -411,8 +446,10 @@ class PickingService:
                     f"cannot recalculate ETA for store '{store.store_id}'."
                 )
             slot_delay_minutes = assignment.slot_delay_minutes
+            assigned_slot_start = assignment.assigned_slot_start
         else:
             slot_delay_minutes = 0
+            assigned_slot_start = None
 
         return self.calculate_eta(
             store=store,
@@ -420,4 +457,5 @@ class PickingService:
             earlier_drops=earlier_drops,
             slot_delay_minutes=slot_delay_minutes,
             reference_time=reference_time,
+            assigned_slot_start=assigned_slot_start,
         )

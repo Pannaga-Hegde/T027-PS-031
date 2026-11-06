@@ -106,6 +106,29 @@ class DeliveryCompletionResult:
     delivered_order_ids: list[str]
 
 
+@dataclass(frozen=True)
+class OrderDeliveryResult:
+    """Structured outcome of an individual order delivery within a batch."""
+
+    batch_id: str
+    order_id: str
+    rider_id: str
+    delivered_at: datetime
+    is_batch_complete: bool
+    remaining_order_ids: list[str]
+
+
+@dataclass(frozen=True)
+class OrderCancellationResult:
+    """Structured outcome of an individual order cancellation within a batch."""
+
+    batch_id: str
+    order_id: str
+    batch_status: BatchStatus
+    rider_released: bool
+    reason: str = ""
+
+
 @runtime_checkable
 class BatchingServiceInterface(Protocol):
     """Protocol defining the rider batching service interface for BR-08."""
@@ -173,6 +196,25 @@ class BatchingServiceInterface(Protocol):
         """Complete batch delivery, transitioning orders to DELIVERED and releasing rider."""
         ...
 
+    def complete_order_delivery(
+        self,
+        batch: Batch,
+        order: Order,
+        rider: Rider,
+        delivered_at: datetime,
+    ) -> OrderDeliveryResult:
+        """Complete delivery for a single order in a dispatched batch progressively."""
+        ...
+
+    def cancel_order_in_batch(
+        self,
+        batch: Batch,
+        order: Order,
+        reason: str = "",
+    ) -> OrderCancellationResult:
+        """Cancel an individual order within a batch without prematurely releasing rider."""
+        ...
+
     def cancel_batch(
         self,
         batch: Batch,
@@ -208,6 +250,7 @@ class BatchingService:
         self._batch_first_ready: dict[str, datetime] = {}
         self._original_etas: dict[str, tuple[datetime, bool]] = {}
         self._assigned_riders: dict[str, Rider] = {}
+        self._cancellation_results: dict[tuple[str, str], tuple[Batch, Order, OrderCancellationResult]] = {}
 
     def get_batch(self, batch_id: str) -> Batch | None:
         """Retrieve a batch by its identifier."""
@@ -936,17 +979,42 @@ class BatchingService:
                     "delivered_at cannot be earlier than dispatched_at."
                 )
 
-        # Validate all order transitions before mutation
-        for o in batch.orders:
+        # Identify active dispatched orders awaiting delivery
+        active_orders = [o for o in batch.orders if o.status == OrderState.DISPATCHED]
+        if not active_orders and not any(o.status == OrderState.DELIVERED for o in batch.orders):
+            raise ValueError(
+                f"Cannot complete delivery for batch '{batch.batch_id}' with no deliverable orders."
+            )
+
+        # Validate order transitions and timestamps before mutation
+        for o in active_orders:
+            if o.order_time is not None:
+                _validate_timezone_parity(
+                    delivered_at,
+                    o.order_time,
+                    "delivered_at",
+                    f"order '{o.order_id}' order_time",
+                )
+                if delivered_at < o.order_time:
+                    raise ValueError(
+                        "delivered_at cannot be earlier than order.order_time."
+                    )
             self._lifecycle_service.validate_transition(
                 o, OrderState.DELIVERED
             )
 
         # Preconditions passed; apply atomic mutations
-        for o in batch.orders:
+        delivered_ids: list[str] = []
+        for o in active_orders:
             self._lifecycle_service.transition(o, OrderState.DELIVERED)
             o.actual_delivery_time = delivered_at
             self._order_active_batches.pop(o.order_id, None)
+            delivered_ids.append(o.order_id)
+
+        # Include orders that were already delivered in prior progressive calls
+        for o in batch.orders:
+            if o.status == OrderState.DELIVERED and o.order_id not in delivered_ids:
+                delivered_ids.append(o.order_id)
 
         batch.status = BatchStatus.DELIVERED
         rider.status = RiderStatus.AVAILABLE
@@ -957,8 +1025,259 @@ class BatchingService:
             batch_id=batch.batch_id,
             rider_id=rider.rider_id,
             delivered_at=delivered_at,
-            delivered_order_ids=[o.order_id for o in batch.orders],
+            delivered_order_ids=delivered_ids,
         )
+
+    def complete_order_delivery(
+        self,
+        batch: Batch,
+        order: Order,
+        rider: Rider,
+        delivered_at: datetime,
+    ) -> OrderDeliveryResult:
+        """Complete delivery for a single order in a dispatched batch progressively."""
+        if isinstance(batch, bool) or not isinstance(batch, Batch):
+            raise TypeError(
+                f"batch must be a Batch instance, got {type(batch).__name__}."
+            )
+        if isinstance(order, bool) or not isinstance(order, Order):
+            raise TypeError(
+                f"order must be an Order instance, got {type(order).__name__}."
+            )
+        if isinstance(rider, bool) or not isinstance(rider, Rider):
+            raise TypeError(
+                f"rider must be a Rider instance, got {type(rider).__name__}."
+            )
+        if isinstance(delivered_at, bool) or not isinstance(
+            delivered_at, datetime
+        ):
+            raise TypeError(
+                f"delivered_at must be a datetime, got {type(delivered_at).__name__}."
+            )
+
+        if batch.status != BatchStatus.DISPATCHED:
+            raise ValueError(
+                f"Cannot complete delivery for batch '{batch.batch_id}' with status '{batch.status.value}'."
+            )
+        if batch.rider_id != rider.rider_id:
+            raise ValueError(
+                f"Batch rider ID '{batch.rider_id}' does not match provided rider '{rider.rider_id}'."
+            )
+
+        tracked_rider = self._assigned_riders.get(batch.batch_id)
+        if tracked_rider is not None and rider is not tracked_rider:
+            raise ValueError(
+                f"Provided rider object does not match assigned rider object for batch '{batch.batch_id}'."
+            )
+
+        batch_order = next(
+            (o for o in batch.orders if o.order_id == order.order_id), None
+        )
+        if batch_order is None:
+            raise ValueError(
+                f"Order '{order.order_id}' is not part of batch '{batch.batch_id}'."
+            )
+        if order is not batch_order:
+            raise ValueError(
+                f"Provided order object does not match the order object in batch '{batch.batch_id}'."
+            )
+
+        if order.status != OrderState.DISPATCHED:
+            raise ValueError(
+                f"Order '{order.order_id}' cannot be delivered because it has status '{order.status.value}' (expected 'DISPATCHED')."
+            )
+
+        if batch.dispatched_at is not None:
+            _validate_timezone_parity(
+                delivered_at,
+                batch.dispatched_at,
+                "delivered_at",
+                "batch.dispatched_at",
+            )
+            if delivered_at < batch.dispatched_at:
+                raise ValueError(
+                    "delivered_at cannot be earlier than dispatched_at."
+                )
+
+        if order.order_time is not None:
+            _validate_timezone_parity(
+                delivered_at,
+                order.order_time,
+                "delivered_at",
+                f"order '{order.order_id}' order_time",
+            )
+            if delivered_at < order.order_time:
+                raise ValueError(
+                    "delivered_at cannot be earlier than order.order_time."
+                )
+
+        # Validate lifecycle transition upfront
+        self._lifecycle_service.validate_transition(order, OrderState.DELIVERED)
+
+        # Apply state mutations
+        self._lifecycle_service.transition(order, OrderState.DELIVERED)
+        order.actual_delivery_time = delivered_at
+        self._order_active_batches.pop(order.order_id, None)
+
+        remaining_active = [
+            o.order_id for o in batch.orders if o.status == OrderState.DISPATCHED
+        ]
+        is_complete = len(remaining_active) == 0
+
+        if is_complete:
+            batch.status = BatchStatus.DELIVERED
+            rider.status = RiderStatus.AVAILABLE
+            self._rider_active_batches.pop(rider.rider_id, None)
+            self._assigned_riders.pop(batch.batch_id, None)
+
+        return OrderDeliveryResult(
+            batch_id=batch.batch_id,
+            order_id=order.order_id,
+            rider_id=rider.rider_id,
+            delivered_at=delivered_at,
+            is_batch_complete=is_complete,
+            remaining_order_ids=remaining_active,
+        )
+
+    def cancel_order_in_batch(
+        self,
+        batch: Batch,
+        order: Order,
+        reason: str = "",
+    ) -> OrderCancellationResult:
+        """Cancel an individual order within a batch without prematurely releasing rider.
+
+        Enforces:
+        - Strict upfront validation before any state or mapping mutations.
+        - Proper lifecycle transition so an order removed from a CREATED batch is never
+          left in an active state.
+        - Idempotency for repeated cancellation invocations returning the exact original
+          cached OrderCancellationResult.
+        - Strict batch and order object identity validation preventing different objects
+          with matching identifiers from receiving cached cancellation results.
+        - Rejection of unsupported/terminal batch states.
+        - Structured OrderCancellationResult returning audit reason and release status.
+        """
+        if isinstance(batch, bool) or not isinstance(batch, Batch):
+            raise TypeError(
+                f"batch must be a Batch instance, got {type(batch).__name__}."
+            )
+        if isinstance(order, bool) or not isinstance(order, Order):
+            raise TypeError(
+                f"order must be an Order instance, got {type(order).__name__}."
+            )
+        if isinstance(reason, bool) or not isinstance(reason, str):
+            raise TypeError(
+                f"reason must be a string, got {type(reason).__name__}."
+            )
+
+        # 1. Validate tracked batch identity
+        tracked_batch = self._batches.get(batch.batch_id)
+        if tracked_batch is not None and batch is not tracked_batch:
+            raise ValueError(
+                f"Provided batch object does not match tracked batch object for '{batch.batch_id}'."
+            )
+
+        # 2. Idempotency check with strict batch and order identity validation
+        cache_key = (batch.batch_id, order.order_id)
+        if cache_key in self._cancellation_results:
+            cached_batch, cached_order, cached_result = self._cancellation_results[
+                cache_key
+            ]
+            if batch is not cached_batch:
+                raise ValueError(
+                    f"Provided batch object does not match the batch object for '{batch.batch_id}'."
+                )
+            if order is not cached_order:
+                raise ValueError(
+                    f"Provided order object does not match the order object in batch '{batch.batch_id}'."
+                )
+            return cached_result
+
+        # 3. Batch status validation (unsupported terminal states rejected without mutation)
+        if batch.status in (BatchStatus.DELIVERED, BatchStatus.CANCELLED):
+            raise ValueError(
+                f"Cannot cancel order in batch '{batch.batch_id}' with terminal status '{batch.status.value}'."
+            )
+        if batch.status not in (BatchStatus.CREATED, BatchStatus.DISPATCHED):
+            raise ValueError(
+                f"Cannot cancel order in batch '{batch.batch_id}' with unsupported status '{batch.status.value}'."
+            )
+
+        # 4. Order membership validation
+        batch_order = next(
+            (o for o in batch.orders if o.order_id == order.order_id), None
+        )
+        if batch_order is None:
+            raise ValueError(
+                f"Order '{order.order_id}' is not part of batch '{batch.batch_id}'."
+            )
+        if order is not batch_order:
+            raise ValueError(
+                f"Provided order object does not match the order object in batch '{batch.batch_id}'."
+            )
+
+        # 5. Order state validation (cannot cancel delivered order)
+        if order.status == OrderState.DELIVERED:
+            raise ValueError(
+                f"Cannot cancel order '{order.order_id}' with terminal status '{order.status.value}'."
+            )
+
+        # 6. Lifecycle transition validation before any mutation
+        if order.status != OrderState.CANCELLED:
+            self._lifecycle_service.validate_transition(
+                order, OrderState.CANCELLED
+            )
+
+        # All validations succeeded; apply atomic mutations:
+        if order.status != OrderState.CANCELLED:
+            self._lifecycle_service.transition(order, OrderState.CANCELLED)
+
+        self._order_active_batches.pop(order.order_id, None)
+
+        rider_released = False
+        if batch.status == BatchStatus.CREATED:
+            batch.orders.remove(order)
+            self.restore_original_etas([order])
+
+            if not batch.orders:
+                batch.status = BatchStatus.CANCELLED
+                tracked_rider = self._assigned_riders.get(batch.batch_id)
+                if tracked_rider is not None:
+                    tracked_rider.status = RiderStatus.AVAILABLE
+                    rider_released = True
+                self._rider_active_batches.pop(batch.rider_id, None)
+                self._assigned_riders.pop(batch.batch_id, None)
+                self._batch_first_ready.pop(batch.batch_id, None)
+
+        elif batch.status == BatchStatus.DISPATCHED:
+            # Order remains in batch.orders list as part of dispatch history
+            remaining_active = [
+                o for o in batch.orders if o.status == OrderState.DISPATCHED
+            ]
+            if not remaining_active:
+                any_delivered = any(
+                    o.status == OrderState.DELIVERED for o in batch.orders
+                )
+                batch.status = (
+                    BatchStatus.DELIVERED if any_delivered else BatchStatus.CANCELLED
+                )
+                tracked_rider = self._assigned_riders.get(batch.batch_id)
+                if tracked_rider is not None:
+                    tracked_rider.status = RiderStatus.AVAILABLE
+                    rider_released = True
+                self._rider_active_batches.pop(batch.rider_id, None)
+                self._assigned_riders.pop(batch.batch_id, None)
+
+        result = OrderCancellationResult(
+            batch_id=batch.batch_id,
+            order_id=order.order_id,
+            batch_status=batch.status,
+            rider_released=rider_released,
+            reason=reason,
+        )
+        self._cancellation_results[cache_key] = (batch, order, result)
+        return result
 
     def cancel_batch(
         self,

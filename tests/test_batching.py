@@ -1441,3 +1441,498 @@ class TestRiderObjectIdentityValidation:
         service.cancel_batch(batch2, rider_cancel)
         assert batch2.status == BatchStatus.CANCELLED
         assert rider_cancel.status == RiderStatus.AVAILABLE
+
+
+class TestProgressiveOrderDelivery:
+    """Tests covering progressive individual-order delivery and post-dispatch cancellation (Stage 2)."""
+
+    def test_two_order_batch_progressive_delivery_keeps_rider_busy_until_last_order(self) -> None:
+        """Delivery of first order keeps rider BUSY; delivery of second releases rider."""
+        service = BatchingService()
+        store = make_test_store()
+        rider = make_test_rider("RIDER-01")
+        t0 = datetime(2026, 11, 4, 18, 0)
+
+        batch = service.create_batch("BATCH-01", store, rider, created_at=t0)
+        o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        o2 = make_test_order("ORD-02", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch, o1, store, ready_at=t0)
+        service.add_order_to_batch(batch, o2, store, ready_at=t0)
+
+        t_dispatch = t0 + timedelta(minutes=3)
+        service.dispatch_batch(batch, store, rider, dispatched_at=t_dispatch)
+        assert rider.status == RiderStatus.BUSY
+        assert batch.status == BatchStatus.DISPATCHED
+
+        # Deliver Drop 1 at t0 + 6 min
+        t_del1 = t0 + timedelta(minutes=6)
+        res1 = service.complete_order_delivery(batch, o1, rider, delivered_at=t_del1)
+
+        assert res1.is_batch_complete is False
+        assert res1.remaining_order_ids == ["ORD-02"]
+        assert res1.order_id == "ORD-01"
+        assert res1.delivered_at == t_del1
+        assert o1.status == OrderState.DELIVERED
+        assert o1.actual_delivery_time == t_del1
+        assert o2.status == OrderState.DISPATCHED
+        assert batch.status == BatchStatus.DISPATCHED
+        assert rider.status == RiderStatus.BUSY
+        assert service._assigned_riders.get("BATCH-01") is rider
+
+        # Deliver Drop 2 at t0 + 9 min
+        t_del2 = t0 + timedelta(minutes=9)
+        res2 = service.complete_order_delivery(batch, o2, rider, delivered_at=t_del2)
+
+        assert res2.is_batch_complete is True
+        assert res2.remaining_order_ids == []
+        assert res2.order_id == "ORD-02"
+        assert res2.delivered_at == t_del2
+        assert o2.status == OrderState.DELIVERED
+        assert o2.actual_delivery_time == t_del2
+        assert batch.status == BatchStatus.DELIVERED
+        assert rider.status == RiderStatus.AVAILABLE
+        assert "BATCH-01" not in service._assigned_riders
+        assert rider.rider_id not in service._rider_active_batches
+
+        # Rider can now be assigned to a new batch immediately
+        batch_new = service.create_batch("BATCH-02", store, rider, created_at=t_del2)
+        assert batch_new.rider_id == rider.rider_id
+
+    def test_three_order_batch_progressive_delivery_three_distinct_timestamps(self) -> None:
+        """3-order batch delivered across 3 distinct timestamps; each order retains its delivery time."""
+        service = BatchingService()
+        store = make_test_store()
+        rider = make_test_rider("RIDER-01")
+        t0 = datetime(2026, 11, 4, 18, 0)
+
+        batch = service.create_batch("BATCH-01", store, rider, created_at=t0)
+        o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        o2 = make_test_order("ORD-02", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        o3 = make_test_order("ORD-03", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch, o1, store, ready_at=t0)
+        service.add_order_to_batch(batch, o2, store, ready_at=t0)
+        service.add_order_to_batch(batch, o3, store, ready_at=t0)
+
+        t_dispatch = t0 + timedelta(minutes=3)
+        service.dispatch_batch(batch, store, rider, dispatched_at=t_dispatch)
+
+        # Drop 1
+        t_d1 = t0 + timedelta(minutes=5)
+        res1 = service.complete_order_delivery(batch, o1, rider, delivered_at=t_d1)
+        assert res1.is_batch_complete is False
+        assert set(res1.remaining_order_ids) == {"ORD-02", "ORD-03"}
+        assert rider.status == RiderStatus.BUSY
+
+        # Drop 2
+        t_d2 = t0 + timedelta(minutes=8)
+        res2 = service.complete_order_delivery(batch, o2, rider, delivered_at=t_d2)
+        assert res2.is_batch_complete is False
+        assert res2.remaining_order_ids == ["ORD-03"]
+        assert rider.status == RiderStatus.BUSY
+
+        # Drop 3
+        t_d3 = t0 + timedelta(minutes=11)
+        res3 = service.complete_order_delivery(batch, o3, rider, delivered_at=t_d3)
+        assert res3.is_batch_complete is True
+        assert res3.remaining_order_ids == []
+        assert batch.status == BatchStatus.DELIVERED
+        assert rider.status == RiderStatus.AVAILABLE
+
+        # Verify all individual delivery timestamps
+        assert o1.actual_delivery_time == t_d1
+        assert o2.actual_delivery_time == t_d2
+        assert o3.actual_delivery_time == t_d3
+
+    def test_progressive_delivery_with_post_dispatch_cancellation(self) -> None:
+        """Order cancelled post-dispatch does not prematurely free rider; rider freed after final delivery."""
+        service = BatchingService()
+        store = make_test_store()
+        rider = make_test_rider("RIDER-01")
+        t0 = datetime(2026, 11, 4, 18, 0)
+
+        batch = service.create_batch("BATCH-01", store, rider, created_at=t0)
+        o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        o2 = make_test_order("ORD-02", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch, o1, store, ready_at=t0)
+        service.add_order_to_batch(batch, o2, store, ready_at=t0)
+
+        t_dispatch = t0 + timedelta(minutes=3)
+        service.dispatch_batch(batch, store, rider, dispatched_at=t_dispatch)
+
+        # Cancel ORD-02 after dispatch
+        cancel_res = service.cancel_order_in_batch(batch, o2, reason="Customer cancelled")
+        assert cancel_res.order_id == "ORD-02"
+        assert cancel_res.reason == "Customer cancelled"
+        assert cancel_res.batch_status == BatchStatus.DISPATCHED
+        assert cancel_res.rider_released is False
+        assert o2.status == OrderState.CANCELLED
+
+        # Rider is STILL busy delivering ORD-01!
+        assert rider.status == RiderStatus.BUSY
+        assert batch.status == BatchStatus.DISPATCHED
+
+        # Deliver ORD-01
+        t_d1 = t0 + timedelta(minutes=7)
+        res = service.complete_order_delivery(batch, o1, rider, delivered_at=t_d1)
+        assert res.is_batch_complete is True
+        assert res.remaining_order_ids == []
+        assert batch.status == BatchStatus.DELIVERED
+        assert rider.status == RiderStatus.AVAILABLE
+
+    def test_post_dispatch_cancellation_of_all_orders_cancels_batch(self) -> None:
+        """When all orders in dispatched batch are cancelled, batch cancels and rider is released."""
+        service = BatchingService()
+        store = make_test_store()
+        rider = make_test_rider("RIDER-01")
+        t0 = datetime(2026, 11, 4, 18, 0)
+
+        batch = service.create_batch("BATCH-01", store, rider, created_at=t0)
+        o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        o2 = make_test_order("ORD-02", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch, o1, store, ready_at=t0)
+        service.add_order_to_batch(batch, o2, store, ready_at=t0)
+
+        t_dispatch = t0 + timedelta(minutes=3)
+        service.dispatch_batch(batch, store, rider, dispatched_at=t_dispatch)
+
+        # Cancel first order
+        res1 = service.cancel_order_in_batch(batch, o1, reason="Shortage")
+        assert res1.rider_released is False
+        assert rider.status == RiderStatus.BUSY
+        assert batch.status == BatchStatus.DISPATCHED
+
+        # Cancel second order
+        res2 = service.cancel_order_in_batch(batch, o2, reason="Customer request")
+        assert res2.rider_released is True
+        assert res2.batch_status == BatchStatus.CANCELLED
+        assert batch.status == BatchStatus.CANCELLED
+        assert rider.status == RiderStatus.AVAILABLE
+
+    def test_complete_order_delivery_validation_errors(self) -> None:
+        """Validation errors in complete_order_delivery raise appropriate exceptions."""
+        service = BatchingService()
+        store = make_test_store()
+        rider = make_test_rider("RIDER-01")
+        t0 = datetime(2026, 11, 4, 18, 0)
+
+        batch = service.create_batch("BATCH-01", store, rider, created_at=t0)
+        o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch, o1, store, ready_at=t0)
+
+        # 1. Non-dispatched batch
+        with pytest.raises(ValueError, match="Cannot complete delivery for batch.*status 'CREATED'"):
+            service.complete_order_delivery(batch, o1, rider, delivered_at=t0 + timedelta(minutes=5))
+
+        t_dispatch = t0 + timedelta(minutes=3)
+        service.dispatch_batch(batch, store, rider, dispatched_at=t_dispatch)
+
+        # 2. Wrong rider ID
+        other_rider = make_test_rider("RIDER-99")
+        with pytest.raises(ValueError, match="Batch rider ID.*does not match provided rider"):
+            service.complete_order_delivery(batch, o1, other_rider, delivered_at=t_dispatch + timedelta(minutes=5))
+
+        # 3. Same ID, different rider object
+        diff_rider_obj = make_test_rider("RIDER-01", status=RiderStatus.BUSY)
+        with pytest.raises(ValueError, match="Provided rider object does not match assigned rider object"):
+            service.complete_order_delivery(batch, o1, diff_rider_obj, delivered_at=t_dispatch + timedelta(minutes=5))
+
+        # 4. Order not in batch
+        o_external = make_test_order("ORD-EXT", order_time=t0)
+        with pytest.raises(ValueError, match="Order 'ORD-EXT' is not part of batch"):
+            service.complete_order_delivery(batch, o_external, rider, delivered_at=t_dispatch + timedelta(minutes=5))
+
+        # 5. Same ID, different order object
+        diff_o1_obj = make_test_order("ORD-01", order_time=t0, status=OrderState.DISPATCHED)
+        with pytest.raises(ValueError, match="Provided order object does not match the order object in batch"):
+            service.complete_order_delivery(batch, diff_o1_obj, rider, delivered_at=t_dispatch + timedelta(minutes=5))
+
+        # 6. Delivered_at earlier than dispatched_at
+        with pytest.raises(ValueError, match="delivered_at cannot be earlier than dispatched_at"):
+            service.complete_order_delivery(batch, o1, rider, delivered_at=t_dispatch - timedelta(minutes=1))
+
+        # 7. Timezone mismatch
+        t_aware = datetime(2026, 11, 4, 18, 10, tzinfo=timezone.utc)
+        with pytest.raises(TypeError, match="Cannot compare"):
+            service.complete_order_delivery(batch, o1, rider, delivered_at=t_aware)
+
+        # 8. Invalid argument types
+        with pytest.raises(TypeError, match="batch must be a Batch"):
+            service.complete_order_delivery("not-a-batch", o1, rider, delivered_at=t_dispatch + timedelta(minutes=5))  # type: ignore
+
+        with pytest.raises(TypeError, match="order must be an Order"):
+            service.complete_order_delivery(batch, "not-an-order", rider, delivered_at=t_dispatch + timedelta(minutes=5))  # type: ignore
+
+        with pytest.raises(TypeError, match="rider must be a Rider"):
+            service.complete_order_delivery(batch, o1, "not-a-rider", delivered_at=t_dispatch + timedelta(minutes=5))  # type: ignore
+
+        with pytest.raises(TypeError, match="delivered_at must be a datetime"):
+            service.complete_order_delivery(batch, o1, rider, delivered_at="2026-11-04 18:10:00")  # type: ignore
+
+    def test_pre_dispatch_cancellation_lifecycle_and_eta_restoration(self) -> None:
+        """Pre-dispatch cancellation transitions order to CANCELLED, restores ETA, and is never left active."""
+        service = BatchingService()
+        store = make_test_store()
+        rider = make_test_rider("RIDER-01")
+        t0 = datetime(2026, 11, 4, 18, 0)
+
+        batch = service.create_batch("BATCH-01", store, rider, created_at=t0)
+        o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        o2 = make_test_order("ORD-02", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch, o1, store, ready_at=t0)
+        service.add_order_to_batch(batch, o2, store, ready_at=t0)
+
+        assert len(batch.orders) == 2
+        res2 = service.cancel_order_in_batch(batch, o2, reason="Customer cancelled before dispatch")
+
+        # 1. Order is transitioned to CANCELLED (not left in READY_FOR_DISPATCH or another active state)
+        assert o2.status == OrderState.CANCELLED
+        assert o2.order_id not in service._order_active_batches
+        assert o2 not in batch.orders
+        assert len(batch.orders) == 1
+        assert res2.batch_status == BatchStatus.CREATED
+        assert res2.rider_released is False
+        assert res2.reason == "Customer cancelled before dispatch"
+
+        # 2. Cancelling the final order cancels the CREATED batch and releases rider
+        res1 = service.cancel_order_in_batch(batch, o1, reason="Cancelled remaining order")
+        assert o1.status == OrderState.CANCELLED
+        assert o1.order_id not in service._order_active_batches
+        assert len(batch.orders) == 0
+        assert res1.batch_status == BatchStatus.CANCELLED
+        assert res1.rider_released is True
+        assert batch.status == BatchStatus.CANCELLED
+        assert rider.status == RiderStatus.AVAILABLE
+
+    def test_failed_cancellation_preserves_all_tracking_mappings(self) -> None:
+        """A failed cancellation aborts before mutation and preserves all batch/order/rider mappings."""
+        service = BatchingService()
+        store = make_test_store()
+        rider = make_test_rider("RIDER-01")
+        t0 = datetime(2026, 11, 4, 18, 0)
+
+        batch = service.create_batch("BATCH-01", store, rider, created_at=t0)
+        o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        o2 = make_test_order("ORD-02", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch, o1, store, ready_at=t0)
+        service.add_order_to_batch(batch, o2, store, ready_at=t0)
+
+        t_dispatch = t0 + timedelta(minutes=3)
+        service.dispatch_batch(batch, store, rider, dispatched_at=t_dispatch)
+
+        # Snapshot tracking state
+        orig_active_orders = dict(service._order_active_batches)
+        orig_assigned_riders = dict(service._assigned_riders)
+        orig_rider_active = dict(service._rider_active_batches)
+
+        # 1. Attempt to cancel an order not in batch
+        o_external = make_test_order("ORD-EXT", order_time=t0)
+        with pytest.raises(ValueError, match="is not part of batch"):
+            service.cancel_order_in_batch(batch, o_external)
+
+        assert service._order_active_batches == orig_active_orders
+        assert service._assigned_riders == orig_assigned_riders
+        assert service._rider_active_batches == orig_rider_active
+        assert len(batch.orders) == 2
+
+        # 2. Attempt to cancel with different object identity
+        diff_o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.DISPATCHED)
+        with pytest.raises(ValueError, match="does not match the order object in batch"):
+            service.cancel_order_in_batch(batch, diff_o1)
+
+        assert service._order_active_batches == orig_active_orders
+        assert service._assigned_riders == orig_assigned_riders
+        assert service._rider_active_batches == orig_rider_active
+        assert o1.status == OrderState.DISPATCHED
+
+        # 3. Deliver o1, then attempt to cancel it
+        t_d1 = t_dispatch + timedelta(minutes=4)
+        service.complete_order_delivery(batch, o1, rider, delivered_at=t_d1)
+        assert o1.status == OrderState.DELIVERED
+
+        active_before_cancel = dict(service._order_active_batches)
+        with pytest.raises(ValueError, match="Cannot cancel order.*terminal status 'DELIVERED'"):
+            service.cancel_order_in_batch(batch, o1)
+
+        assert service._order_active_batches == active_before_cancel
+        assert o1.status == OrderState.DELIVERED
+        assert batch.status == BatchStatus.DISPATCHED
+        assert rider.status == RiderStatus.BUSY
+
+    def test_repeated_cancellation_is_idempotent(self) -> None:
+        """Calling cancel_order_in_batch repeatedly on the same order returns the original cached result."""
+        service = BatchingService()
+        store = make_test_store()
+        rider = make_test_rider("RIDER-01")
+        t0 = datetime(2026, 11, 4, 18, 0)
+
+        batch = service.create_batch("BATCH-01", store, rider, created_at=t0)
+        o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        o2 = make_test_order("ORD-02", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch, o1, store, ready_at=t0)
+        service.add_order_to_batch(batch, o2, store, ready_at=t0)
+
+        # Pre-dispatch cancellation
+        res1 = service.cancel_order_in_batch(batch, o1, reason="Customer cancelled")
+        assert res1.order_id == "ORD-01"
+        assert o1.status == OrderState.CANCELLED
+        assert res1.rider_released is False
+        assert res1.reason == "Customer cancelled"
+
+        # Repeated cancellation of o1 returns exact original cached result
+        res1_dup = service.cancel_order_in_batch(batch, o1, reason="Repeated cancellation")
+        assert res1_dup is res1
+        assert res1_dup.order_id == "ORD-01"
+        assert res1_dup.rider_released is False
+        assert res1_dup.reason == "Customer cancelled"
+        assert len(batch.orders) == 1
+        assert batch.orders[0].order_id == "ORD-02"
+
+        # Dispatch and post-dispatch repeated cancellation
+        t_dispatch = t0 + timedelta(minutes=3)
+        service.dispatch_batch(batch, store, rider, dispatched_at=t_dispatch)
+        res2 = service.cancel_order_in_batch(batch, o2, reason="Dispatched cancellation")
+        assert res2.order_id == "ORD-02"
+        assert res2.rider_released is True
+        assert res2.reason == "Dispatched cancellation"
+        assert batch.status == BatchStatus.CANCELLED
+
+        # Repeated post-dispatch cancellation returns exact original cached result (preserving rider_released=True)
+        res2_dup = service.cancel_order_in_batch(batch, o2, reason="Duplicate dispatched cancellation")
+        assert res2_dup is res2
+        assert res2_dup.order_id == "ORD-02"
+        assert res2_dup.rider_released is True
+        assert res2_dup.reason == "Dispatched cancellation"
+
+    def test_idempotent_cancellation_identity_validation_and_result_accuracy(self) -> None:
+        """Repeated cancellation validates batch/order identity and preserves accurate rider_released status."""
+        service = BatchingService()
+        store = make_test_store()
+        rider = make_test_rider("RIDER-01")
+        t0 = datetime(2026, 11, 4, 18, 0)
+
+        batch = service.create_batch("BATCH-01", store, rider, created_at=t0)
+        o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch, o1, store, ready_at=t0)
+
+        # Single order in CREATED batch: cancellation transitions batch to CANCELLED and releases rider
+        res1 = service.cancel_order_in_batch(batch, o1, reason="Single order pre-dispatch cancel")
+        assert res1.rider_released is True
+        assert res1.batch_status == BatchStatus.CANCELLED
+        assert res1.reason == "Single order pre-dispatch cancel"
+
+        # 1. Repeated cancellation of the exact order object returns the cached result with rider_released=True
+        res1_dup = service.cancel_order_in_batch(batch, o1, reason="Duplicate attempt")
+        assert res1_dup is res1
+        assert res1_dup.rider_released is True
+        assert res1_dup.reason == "Single order pre-dispatch cancel"
+
+        # 2. A different Order object with the same order_id must raise ValueError, not receive cached result
+        diff_o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.CANCELLED)
+        assert diff_o1 is not o1
+        with pytest.raises(
+            ValueError,
+            match="Provided order object does not match the order object in batch 'BATCH-01'",
+        ):
+            service.cancel_order_in_batch(batch, diff_o1)
+
+        # 3. A different Batch object with the same batch_id must raise ValueError
+        diff_batch = Batch(
+            batch_id="BATCH-01",
+            rider_id=rider.rider_id,
+            created_at=t0,
+            orders=[],
+            status=BatchStatus.CANCELLED,
+        )
+        assert diff_batch is not batch
+        with pytest.raises(
+            ValueError,
+            match="Provided batch object does not match",
+        ):
+            service.cancel_order_in_batch(diff_batch, o1)
+
+        # 4. Post-dispatch identity validation on idempotency
+        batch2 = service.create_batch("BATCH-02", store, rider, created_at=t0)
+        o2_a = make_test_order("ORD-02", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        o3_a = make_test_order("ORD-03", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch2, o2_a, store, ready_at=t0)
+        service.add_order_to_batch(batch2, o3_a, store, ready_at=t0)
+        service.dispatch_batch(batch2, store, rider, dispatched_at=t0 + timedelta(minutes=3))
+
+        # Cancel o2_a post-dispatch (batch remains DISPATCHED, rider remains BUSY)
+        res_post = service.cancel_order_in_batch(batch2, o2_a, reason="Post-dispatch cancel")
+        assert res_post.rider_released is False
+
+        # Duplicate with same object returns exact result
+        res_post_dup = service.cancel_order_in_batch(batch2, o2_a, reason="Another reason")
+        assert res_post_dup is res_post
+        assert res_post_dup.rider_released is False
+        assert res_post_dup.reason == "Post-dispatch cancel"
+
+        # Duplicate with different Order object for ORD-02 raises ValueError
+        diff_o2 = make_test_order("ORD-02", order_time=t0, status=OrderState.CANCELLED)
+        with pytest.raises(
+            ValueError,
+            match="Provided order object does not match the order object in batch 'BATCH-02'",
+        ):
+            service.cancel_order_in_batch(batch2, diff_o2)
+
+    def test_unsupported_batch_state_rejects_cancellation_without_mutation(self) -> None:
+        """Attempting to cancel an order in a DELIVERED or CANCELLED batch is rejected with ValueError."""
+        service = BatchingService()
+        store = make_test_store()
+        rider = make_test_rider("RIDER-01")
+        t0 = datetime(2026, 11, 4, 18, 0)
+
+        batch = service.create_batch("BATCH-01", store, rider, created_at=t0)
+        o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch, o1, store, ready_at=t0)
+
+        t_dispatch = t0 + timedelta(minutes=3)
+        service.dispatch_batch(batch, store, rider, dispatched_at=t_dispatch)
+        service.complete_order_delivery(batch, o1, rider, delivered_at=t_dispatch + timedelta(minutes=5))
+        assert batch.status == BatchStatus.DELIVERED
+
+        # Batch is DELIVERED: cancellation must be rejected
+        with pytest.raises(ValueError, match="Cannot cancel order in batch.*terminal status 'DELIVERED'"):
+            service.cancel_order_in_batch(batch, o1)
+
+        # Batch is CANCELLED: cancellation must be rejected
+        batch2 = service.create_batch("BATCH-02", store, rider, created_at=t0)
+        o2 = make_test_order("ORD-02", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch2, o2, store, ready_at=t0)
+        service.cancel_batch(batch2, rider)
+        assert batch2.status == BatchStatus.CANCELLED
+
+        with pytest.raises(ValueError, match="Cannot cancel order in batch.*terminal status 'CANCELLED'"):
+            service.cancel_order_in_batch(batch2, o2)
+
+    def test_mixed_progressive_and_batch_delivery(self) -> None:
+        """Calling complete_order_delivery for drop 1 and complete_delivery for remaining orders succeeds."""
+        service = BatchingService()
+        store = make_test_store()
+        rider = make_test_rider("RIDER-01")
+        t0 = datetime(2026, 11, 4, 18, 0)
+
+        batch = service.create_batch("BATCH-01", store, rider, created_at=t0)
+        o1 = make_test_order("ORD-01", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        o2 = make_test_order("ORD-02", order_time=t0, status=OrderState.READY_FOR_DISPATCH)
+        service.add_order_to_batch(batch, o1, store, ready_at=t0)
+        service.add_order_to_batch(batch, o2, store, ready_at=t0)
+
+        t_dispatch = t0 + timedelta(minutes=3)
+        service.dispatch_batch(batch, store, rider, dispatched_at=t_dispatch)
+
+        # Progressively deliver O1
+        t_d1 = t0 + timedelta(minutes=6)
+        service.complete_order_delivery(batch, o1, rider, delivered_at=t_d1)
+        assert o1.status == OrderState.DELIVERED
+        assert o1.actual_delivery_time == t_d1
+
+        # Deliver remainder with complete_delivery
+        t_d2 = t0 + timedelta(minutes=10)
+        res = service.complete_delivery(batch, rider, delivered_at=t_d2)
+        assert batch.status == BatchStatus.DELIVERED
+        assert rider.status == RiderStatus.AVAILABLE
+        assert o2.status == OrderState.DELIVERED
+        assert o2.actual_delivery_time == t_d2
+        assert set(res.delivered_order_ids) == {"ORD-01", "ORD-02"}
