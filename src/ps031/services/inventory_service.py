@@ -324,6 +324,50 @@ class InventoryService:
         reservation = self._validate_reservation_id(reservation_id)
         return self._copy_reservation(reservation)
 
+    def get_reservations_for_order(
+        self,
+        order_id: str,
+        status: ReservationStatus | None = ReservationStatus.PENDING,
+    ) -> list[Reservation]:
+        """
+        Return safe detached copies of reservations registered for the given order.
+
+        By default, queries active reservations with status ReservationStatus.PENDING.
+        If status is None, returns reservations of any lifecycle status.
+
+        Sorting is deterministic: ordered by created_at ascending, then reservation_id.
+
+        Raises:
+            TypeError: If order_id is not a string (or is a boolean), or if status is
+                       not a ReservationStatus instance (when provided).
+            ValueError: If order_id is empty or whitespace, or if status string is unknown.
+        """
+        if isinstance(order_id, bool) or not isinstance(order_id, str):
+            raise TypeError(
+                f"order_id must be a string, got {type(order_id).__name__}."
+            )
+        if not order_id.strip():
+            raise ValueError("order_id must not be empty or whitespace.")
+
+        if status is not None:
+            if isinstance(status, str) and not isinstance(status, ReservationStatus):
+                try:
+                    status = ReservationStatus(status)
+                except ValueError:
+                    raise ValueError(f"Unknown ReservationStatus '{status}'.")
+            elif not isinstance(status, ReservationStatus):
+                raise TypeError(
+                    f"status must be a ReservationStatus or None, got {type(status).__name__}."
+                )
+
+        matching = [
+            r
+            for r in self._reservations.values()
+            if r.order_id == order_id and (status is None or r.status == status)
+        ]
+        matching.sort(key=lambda r: (r.created_at, r.reservation_id))
+        return [self._copy_reservation(r) for r in matching]
+
     @property
     def reservations(self) -> dict[str, Reservation]:
         """Return safe detached copies of all internal reservations."""

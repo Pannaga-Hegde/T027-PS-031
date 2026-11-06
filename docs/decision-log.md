@@ -160,3 +160,51 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 **Reason:** Ensures customer safety, rider safety, and realistic delivery commitments during severe weather disruptions without generating false SLA compensation claims or corrupted scheduling state.
 **Alternatives:** Dynamic hold durations; extending dispatched orders in transit; shifting SLA compensation calculation baselines.
 **Status:** Accepted.
+
+## DEC-14 — Picking-Start and ETA Calculation (BR-04 Alignment with Mentor Specification)
+
+**Date:** 5 November 2026
+**Decision:** For BR-04 (ETA Calculation) and BR-03 (Picking Capacity):
+1. **Picking-Start Definition:** In adherence to the mentor sample-data specification ("picking of an order starts at the later of its allocation time and its slot start"), picking start is defined as:
+   $$T_{\text{picking\_start}} = \max(T_{\text{base}}, T_{\text{assigned\_slot\_start}})$$
+   where $T_{\text{base}}$ is the effective order arrival/reference timestamp.
+2. **Promised Delivery ETA:**
+   $$T_{\text{promised\_eta}} = T_{\text{picking\_start}} + t_{\text{picking}} + t_{\text{travel}} + t_{\text{earlier\_drops}}$$
+   where $t_{\text{picking}} = 2\text{ min}$, $t_{\text{travel}} = \lceil 1.5 \times \text{distance\_km} \rceil\text{ min}$, and $t_{\text{earlier\_drops}} = 2 \times N_{\text{earlier\_drops}}\text{ min}$.
+3. **Slot Overflow Behavior:** For orders overflowing into subsequent 10-minute slots due to picking capacity exhaustion (such as EC-03), picking begins at the start of that assigned slot rather than shifting the order arrival time by 10 minutes.
+4. **Non-Overflow Consistency:** For orders assigned to their current slot without overflow, $T_{\text{assigned\_slot\_start}} \le T_{\text{base}}$, resulting in $T_{\text{picking\_start}} = T_{\text{base}}$, preserving identical behavior with prior calculations.
+5. **Backward Compatibility:** `calculate_eta` accepts optional `assigned_slot_start: datetime | None = None`. When omitted, it safely falls back to $T_{\text{picking\_start}} = T_{\text{base}} + \Delta t_{\text{slot\_delay}}$.
+6. **Supersession:** This decision clarifies and supersedes item 4 of DEC-10 regarding the calculation base for slot-overflowed orders.
+**Reason:** Matches the mentor's official sample-data specification and real dark store physical operations where store staff pick orders during their scheduled slot.
+**Alternatives:** Adding 10 minutes to the order arrival timestamp for each slot overflow; starting picking before the assigned slot window.
+**Status:** Accepted.
+
+## DEC-15 — Progressive Individual-Order Delivery and Post-Dispatch Cancellation
+
+**Date:** 5 November 2026
+**Decision:** For BR-08 (Rider Batching) and BR-12 (Cancellation):
+1. **Progressive Delivery Execution:** A dispatched delivery batch can have its individual orders delivered progressively via `complete_order_delivery(batch, order, rider, delivered_at)`.
+2. **Intermediate Batch and Rider State:** Delivering an intermediate drop transitions only that order to `OrderState.DELIVERED` and records its `actual_delivery_time`. The batch remains in `BatchStatus.DISPATCHED`, the rider remains in `RiderStatus.BUSY`, and active batch tracking is retained.
+3. **Terminal Batch State and Rider Release:** The batch status transitions to `BatchStatus.DELIVERED` and the assigned rider transitions to `RiderStatus.AVAILABLE` (with tracking mappings removed) if and only if all orders in `batch.orders` have reached terminal states (`DELIVERED` or `CANCELLED`).
+4. **Post-Dispatch Cancellation:** When an individual order within a dispatched batch is cancelled via `cancel_order_in_batch(batch, order)`, the cancelled order transitions to `OrderState.CANCELLED`, but remains in `batch.orders` for dispatch history. The rider is NOT released and the batch is NOT cancelled while other active orders remain on the bike.
+5. **Pre-Dispatch Cancellation:** If an order in a `CREATED` batch is cancelled prior to dispatch, it is removed from `batch.orders` and its original promised ETA is restored. If the batch becomes empty, the batch is cancelled and the rider is released.
+6. **Backward Compatibility:** `complete_delivery(batch, rider, delivered_at)` continues to deliver all remaining active orders in the batch simultaneously, fully supporting batch-level completion.
+7. **Cancellation Idempotency and Object Identity:** `cancel_order_in_batch()` caches the original `OrderCancellationResult` per `(batch_id, order_id)`. Subsequent cancellation invocations return the exact cached result (preserving `rider_released`, reason, and batch status) after strictly validating batch and order object identity, preventing different objects with matching identifiers from receiving cached cancellation results.
+**Reason:** Adheres strictly to the mentor's actual dispatch and delivery logs (`delivery_events.csv`), where riders deliver multiple batched drops at distinct timestamps sequentially without releasing the rider between drops.
+**Alternatives:** Releasing rider on the first delivered drop; failing on individual delivery timestamps; cancelling entire batch when a single order is cancelled post-dispatch.
+**Status:** Accepted.
+
+## DEC-16 — Customer Cancellation (BR-12) Architecture, Refund Ledger, and Reservation Safety
+
+**Date:** 6 November 2026
+**Decision:** For customer-initiated order cancellation under BR-12:
+1. **Ownership Decoupling:** `CancellationService` owns BR-12 eligibility, cancellation fees, refund calculation, and multi-service cancellation coordination. `LifecycleTransitionService` owns state transitions. `InventoryService` remains the sole authority for inventory releases. `BatchingService` owns batch drop removal and rider tracking.
+2. **Refund Ledger & Failure Preservation:** `_refund_ledger` stores immutable `RefundRecord` objects keyed by `order_id`. A calculated and recorded refund is preserved even if downstream inventory, lifecycle, or batch operations fail. Retries reuse the recorded refund without duplication.
+3. **In-Memory Limitations:** The refund ledger and operational retry cache are in-memory data structures. They are not persistent across application restarts or crash-safe. External payment gateway integration is outside the capstone scope.
+4. **Operation Fingerprinting:** `CancellationOperationState` tracks granular workflow completion and request fingerprints (order instance, batch instance, amount_paid, reservation IDs, reason, cancelled_at, and picking_start). Retries with altered financial or operational inputs are rejected.
+5. **Reservation Handling & Discovery:** `InventoryService.get_reservations_for_order(order_id)` discovers reservations when IDs are omitted. Releasing distinguishes `COMMITTED` (never released), `ALREADY_RELEASED` (skipped without duplicate stock restoration), and `UNKNOWN` (missing reservation ID). For active inventory-holding states (`ALLOCATED`, `PICKING`, `READY_FOR_DISPATCH`), an error is raised if no reservations are found and none are provided, preventing silent skip. Dark store reservations are not released for `DISPATCHED` orders.
+6. **Lifecycle and Batching Execution Order:** The execution sequence is: (1) Validate & Fingerprint, (2) Calculate, (3) Record in `_refund_ledger`, (4) Release eligible reservations, (5) Transition to `CANCELLED` via `LifecycleTransitionService`, (6) Update batch via `BatchingService.cancel_order_in_batch()`, (7) Mark `COMPLETED` and return immutable `CancellationResult`. Because both services check `order.status != OrderState.CANCELLED`, duplicate transitions are avoided.
+7. **SIMILAR_ONLY Catalog Metadata Limitation:** `OrderItem` records only the substitute SKU string, not its catalog brand or category. When catalog metadata is provided, `CancellationService` verifies similarity violations. When catalog metadata is unavailable, compliance is presumed because `SubstitutionService` enforces `SIMILAR_ONLY` during fulfillment.
+**Reason:** Strictly satisfies mentor BR-12 requirements, ensures complete financial and inventory safety, prevents premature rider release, and supports safe retry resumption.
+**Alternatives:** Direct inventory manipulation in CancellationService; duplicate lifecycle transitions; classifying all SIMILAR_ONLY substitutions as unconsented; hardcoding rider release on single drop cancel.
+**Status:** Accepted.
