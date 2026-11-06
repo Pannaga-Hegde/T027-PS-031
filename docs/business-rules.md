@@ -169,7 +169,7 @@
 
 **Requirement:** A rider who is late on two or more orders in a batch loses the ₹20 batch bonus. A rider more than 15 minutes late on an order receives a ₹30 deduction, capped at ₹90 per day.
 
-**Implementation module:** `compensation_service.py`
+**Implementation module:** `rider_penalty_service.py`
 
 **Required tests:**
 
@@ -180,7 +180,7 @@
 * Daily penalty cap.
 * Multiple batches for the same rider.
 
-**Status:** NOT IMPLEMENTED
+**Status:** TESTED
 
 ## BR-11 — Weather Hold
 

@@ -53,6 +53,12 @@ from ps031.services.pricing_service import (
     PricingService,
     PricingServiceInterface,
 )
+from ps031.services.rider_penalty_service import (
+    BatchPenaltyResult,
+    OrderPenaltyDetail,
+    RiderPenaltyService,
+    RiderPenaltyServiceInterface,
+)
 from ps031.services.substitution_service import (
     SubstitutionResult,
     SubstitutionService,
@@ -69,6 +75,7 @@ __all__ = [
     "AllocationServiceInterface",
     "BatchDispatchResult",
     "BatchEvaluation",
+    "BatchPenaltyResult",
     "BatchingService",
     "BatchingServiceInterface",
     "CancellationOperationState",
@@ -91,6 +98,7 @@ __all__ = [
     "LifecycleTransitionService",
     "OrderCancellationResult",
     "OrderDeliveryResult",
+    "OrderPenaltyDetail",
     "PickingScheduleResult",
     "PickingService",
     "PickingServiceInterface",
@@ -98,6 +106,8 @@ __all__ = [
     "PricingService",
     "PricingServiceInterface",
     "RefundRecord",
+    "RiderPenaltyService",
+    "RiderPenaltyServiceInterface",
     "StoreEvaluation",
     "SubstitutionResult",
     "SubstitutionService",

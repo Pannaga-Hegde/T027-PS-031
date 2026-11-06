@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from decimal import Decimal
 import pytest
 
@@ -113,3 +114,58 @@ def test_rider_rejects_non_finite_penalty():
     for bad in [Decimal("NaN"), Decimal("Infinity"), float("nan"), float("inf")]:
         with pytest.raises(ValueError, match="finite"):
             Rider("r1", "Name", daily_penalty=bad)
+
+
+def test_rider_daily_penalty_date_defaults_to_none():
+    """Rider defaults daily_penalty_date to None."""
+    r = Rider("r1", "Ramesh Kumar")
+    assert r.daily_penalty_date is None
+
+
+def test_rider_daily_penalty_date_accepts_date_instance():
+    """Rider accepts explicit date instance for daily_penalty_date."""
+    d = date(2026, 11, 6)
+    r = Rider("r1", "Ramesh Kumar", daily_penalty=Decimal("30.00"), daily_penalty_date=d)
+    assert r.daily_penalty_date == d
+
+
+def test_rider_daily_penalty_date_coerces_iso_string():
+    """Rider coerces valid ISO date string into date instance."""
+    r = Rider("r1", "Ramesh Kumar", daily_penalty_date="2026-11-06")
+    assert r.daily_penalty_date == date(2026, 11, 6)
+
+
+def test_rider_daily_penalty_date_rejects_empty_string():
+    """Rider rejects empty or whitespace-only daily_penalty_date string."""
+    with pytest.raises(ValueError, match="must not be empty"):
+        Rider("r1", "Ramesh Kumar", daily_penalty_date="")
+    with pytest.raises(ValueError, match="must not be empty"):
+        Rider("r1", "Ramesh Kumar", daily_penalty_date="   ")
+
+
+def test_rider_daily_penalty_date_rejects_malformed_string():
+    """Rider rejects invalid date string formats."""
+    with pytest.raises(ValueError, match="Invalid daily penalty date format"):
+        Rider("r1", "Ramesh Kumar", daily_penalty_date="not-a-date")
+    with pytest.raises(ValueError, match="Invalid daily penalty date format"):
+        Rider("r1", "Ramesh Kumar", daily_penalty_date="2026/11/06")
+
+
+def test_rider_daily_penalty_date_rejects_boolean():
+    """Rider rejects boolean for daily_penalty_date."""
+    with pytest.raises(TypeError, match="cannot be a boolean"):
+        Rider("r1", "Ramesh Kumar", daily_penalty_date=True)
+
+
+def test_rider_daily_penalty_date_rejects_datetime():
+    """Rider rejects datetime instance to avoid timezone/time ambiguity."""
+    dt = datetime(2026, 11, 6, 10, 30)
+    with pytest.raises(TypeError, match="must be a date, not a datetime"):
+        Rider("r1", "Ramesh Kumar", daily_penalty_date=dt)
+
+
+def test_rider_daily_penalty_date_rejects_invalid_types():
+    """Rider rejects non-date/non-string types."""
+    for bad in [123, 12.34, [date(2026, 11, 6)]]:
+        with pytest.raises(TypeError, match="must be a date or None"):
+            Rider("r1", "Ramesh Kumar", daily_penalty_date=bad)
