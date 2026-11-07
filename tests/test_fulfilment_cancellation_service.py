@@ -164,3 +164,67 @@ def test_already_cancelled_order_with_pending_reservations_releases_reservations
     assert second.refund_amount == Decimal("100.00")
     assert len(service.refund_ledger) == 1
     assert store.inventory["SKU-1"] == 10
+
+
+def test_br06_cancellation_refunds_item_value_and_delivery_and_surge_fees(
+    cancellation_setup,
+):
+    order, store, inventory, reservation, service = cancellation_setup
+    order.delivery_fee = Decimal("5.00")
+    order.surge_fee = Decimal("3.00")
+
+    result = service.cancel(order, [reservation], "below fulfilment threshold")
+
+    assert result.is_cancelled is True
+    assert result.refund_amount == Decimal("108.00")
+    assert result.evaluation.delivery_fee_charged == Decimal("0.00")
+    assert order.refund_amount == Decimal("108.00")
+    assert service.refund_ledger["ORDER-1"] == Decimal("108.00")
+
+
+def test_br06_cancellation_refunds_exact_explicit_amount_paid(
+    cancellation_setup,
+):
+    order, store, inventory, reservation, service = cancellation_setup
+    order.delivery_fee = Decimal("5.00")
+    order.surge_fee = Decimal("3.00")
+
+    result = service.cancel(
+        order,
+        [reservation],
+        "below fulfilment threshold",
+        amount_paid=Decimal("112.50"),
+    )
+
+    assert result.is_cancelled is True
+    assert result.refund_amount == Decimal("112.50")
+    assert result.evaluation.refund_amount == Decimal("112.50")
+    assert result.evaluation.delivery_fee_charged == Decimal("0.00")
+    assert order.refund_amount == Decimal("112.50")
+    assert service.refund_ledger["ORDER-1"] == Decimal("112.50")
+
+
+def test_br06_non_cancelled_order_refunds_unfulfilled_value_after_collected_fees(
+    cancellation_setup,
+):
+    order, store, inventory, reservation, service = cancellation_setup
+    order.items[0].fulfilled_quantity = 6
+    order.delivery_fee = Decimal("5.00")
+    order.surge_fee = Decimal("3.00")
+
+    result = service.cancel(
+        order,
+        [reservation],
+        "threshold evaluation",
+        amount_paid=Decimal("108.00"),
+    )
+
+    assert result.is_cancelled is False
+    assert result.evaluation.fulfilled_ratio == Decimal("0.6")
+    assert result.evaluation.delivery_fee_charged == Decimal("8.00")
+    assert result.refund_amount == Decimal("40.00")
+    assert order.status == OrderState.ALLOCATED
+    assert order.refund_amount == Decimal("0.00")
+    assert service.refund_ledger == {}
+    assert inventory.get_reservation(reservation.reservation_id).status == ReservationStatus.PENDING
+    assert store.inventory["SKU-1"] == 6
