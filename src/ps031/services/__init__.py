@@ -68,6 +68,12 @@ from ps031.services.rider_payout_service import (
     RiderPayoutService,
     RiderPayoutServiceInterface,
 )
+from ps031.services.rider_penalty_service import (
+    BatchPenaltyResult,
+    OrderPenaltyDetail,
+    RiderPenaltyService,
+    RiderPenaltyServiceInterface,
+)
 from ps031.services.substitution_service import (
     SubstitutionResult,
     SubstitutionService,
@@ -87,6 +93,7 @@ __all__ = [
     "BatchFingerprint",
     "BatchPenaltyResult",
     "BatchPayoutEvaluation",
+    "BatchPenaltyResult",
     "BatchingService",
     "BatchingServiceInterface",
     "CancellationOperationState",
@@ -124,6 +131,8 @@ __all__ = [
     "RiderPenaltyServiceInterface",
     "RiderPayoutService",
     "RiderPayoutServiceInterface",
+    "RiderPenaltyService",
+    "RiderPenaltyServiceInterface",
     "StoreEvaluation",
     "SubstitutionResult",
     "SubstitutionService",

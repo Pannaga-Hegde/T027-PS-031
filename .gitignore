@@ -23,3 +23,6 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+# Generated simulation outputs
+/output/
+/output-final/

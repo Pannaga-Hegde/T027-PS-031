@@ -1061,3 +1061,80 @@ class TestDeliveryEventStateValidation:
         daily_again = service.get_daily_payout("R1", "2026-11-04")
         assert daily_again.late_orders == 0
         assert daily_again.late_deductions == Decimal("0.00")
+
+
+class TestPublicLedgerSeeding:
+    """Tests for public ledger seeding, repeated seeding, and protection of existing ledgers."""
+
+    def test_public_ledger_seeding_valid(self) -> None:
+        service = RiderPayoutService()
+        assert service.has_daily_ledger("R1", "2026-11-04") is False
+
+        seeded = service.seed_daily_penalty("R1", "2026-11-04", Decimal("60.00"))
+        assert seeded == Decimal("60.00")
+        assert service.has_daily_ledger("R1", "2026-11-04") is True
+
+        daily = service.get_daily_payout("R1", "2026-11-04")
+        assert daily.late_deductions == Decimal("60.00")
+        assert daily.late_deduction_capped == Decimal("60.00")
+
+    def test_public_ledger_seeding_respects_daily_cap(self) -> None:
+        service = RiderPayoutService()
+        seeded = service.seed_daily_penalty("R1", "2026-11-04", Decimal("120.00"))
+        assert seeded == Decimal("90.00")
+
+        daily = service.get_daily_payout("R1", "2026-11-04")
+        assert daily.late_deductions == Decimal("90.00")
+        assert daily.late_deduction_capped == Decimal("90.00")
+
+    def test_repeated_seeding_rejected(self) -> None:
+        service = RiderPayoutService()
+        service.seed_daily_penalty("R1", "2026-11-04", Decimal("30.00"))
+
+        with pytest.raises(ValueError, match="already exists"):
+            service.seed_daily_penalty("R1", "2026-11-04", Decimal("30.00"))
+
+        daily = service.get_daily_payout("R1", "2026-11-04")
+        assert daily.late_deductions == Decimal("30.00")
+
+    def test_existing_ledger_protection_from_seeding(self) -> None:
+        service = RiderPayoutService()
+        t_eta = datetime(2026, 11, 4, 10, 0)
+        t_del = t_eta + timedelta(minutes=20)
+        order = make_order("ORD-SEV", promised_eta=t_eta, status=OrderState.DELIVERED)
+
+        # Create ledger via record_delivery_event
+        service.record_delivery_event(order, rider_id="R1", batch_id="B1", delivered_at=t_del)
+        assert service.has_daily_ledger("R1", "2026-11-04") is True
+
+        # Seeding must be rejected and must not overwrite existing ledger
+        with pytest.raises(ValueError, match="already exists"):
+            service.seed_daily_penalty("R1", "2026-11-04", Decimal("60.00"))
+
+        daily = service.get_daily_payout("R1", "2026-11-04")
+        assert daily.late_deductions == Decimal("30.00")
+
+    def test_seeding_validation(self) -> None:
+        service = RiderPayoutService()
+
+        # Invalid rider_id
+        with pytest.raises(TypeError, match="rider_id must be a string"):
+            service.seed_daily_penalty(True, "2026-11-04", Decimal("30.00"))  # type: ignore
+        with pytest.raises(ValueError, match="rider_id must not be empty"):
+            service.seed_daily_penalty("   ", "2026-11-04", Decimal("30.00"))
+
+        # Invalid date
+        with pytest.raises(TypeError, match="cannot be a boolean"):
+            service.seed_daily_penalty("R1", True, Decimal("30.00"))  # type: ignore
+        with pytest.raises(TypeError, match="must be a date, not a datetime"):
+            service.seed_daily_penalty("R1", datetime(2026, 11, 4, 10, 0), Decimal("30.00"))  # type: ignore
+        with pytest.raises(ValueError, match="Invalid date format"):
+            service.seed_daily_penalty("R1", "invalid-date", Decimal("30.00"))
+
+        # Invalid amount
+        with pytest.raises(TypeError, match="cannot be a boolean"):
+            service.seed_daily_penalty("R1", "2026-11-04", True)  # type: ignore
+        with pytest.raises(ValueError, match="cannot be negative"):
+            service.seed_daily_penalty("R1", "2026-11-04", Decimal("-10.00"))
+        with pytest.raises(ValueError, match="must be finite"):
+            service.seed_daily_penalty("R1", "2026-11-04", Decimal("NaN"))

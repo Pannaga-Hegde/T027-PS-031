@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol, runtime_checkable
 
 from ps031.models.batch import Batch, BatchStatus
@@ -209,6 +209,37 @@ class RiderPayoutServiceInterface(Protocol):
         payout_date: str | date | None = None,
     ) -> list[RiderDailyPayout]:
         """Retrieve all daily payout summaries sorted deterministically by (date asc, rider_id asc)."""
+        ...
+
+    def seed_daily_penalty(
+        self,
+        rider_id: str,
+        payout_date: str | date,
+        penalty_amount: Decimal | str | int | float,
+    ) -> Decimal:
+        """Seed starting accumulated daily penalty for an existing rider on a given date."""
+        ...
+
+    def has_daily_ledger(
+        self,
+        rider_id: str,
+        payout_date: str | date,
+    ) -> bool:
+        """Return True if a daily ledger exists for the given rider and date."""
+        ...
+
+    def has_delivered_order(
+        self,
+        order_id: str,
+    ) -> bool:
+        """Return True if an order delivery drop has already been recorded."""
+        ...
+
+    def get_delivered_order(
+        self,
+        order_id: str,
+    ) -> DeliveredOrderAudit | None:
+        """Retrieve audit record for a previously recorded delivery event, or None."""
         ...
 
     def reset(self) -> None:
@@ -748,6 +779,77 @@ class RiderPayoutService:
 
         results.sort(key=lambda p: (p.date, p.rider_id))
         return results
+
+    def seed_daily_penalty(
+        self,
+        rider_id: str,
+        payout_date: str | date,
+        penalty_amount: Decimal | str | int | float,
+    ) -> Decimal:
+        """Seed starting accumulated daily penalty for an existing rider on a given date."""
+        valid_rider_id = _validate_non_empty_str(rider_id, "rider_id")
+
+        if isinstance(payout_date, bool):
+            raise TypeError("payout_date cannot be a boolean.")
+        if isinstance(payout_date, datetime):
+            raise TypeError("payout_date must be a date, not a datetime.")
+        date_str = _format_date(payout_date)
+
+        if isinstance(penalty_amount, bool):
+            raise TypeError("penalty_amount cannot be a boolean.")
+
+        if not isinstance(penalty_amount, (Decimal, str, int, float)):
+            raise TypeError(
+                f"penalty_amount must be a Decimal, str, int, or float, got {type(penalty_amount).__name__}."
+            )
+
+        if not isinstance(penalty_amount, Decimal):
+            try:
+                penalty_amount = Decimal(str(penalty_amount))
+            except (InvalidOperation, TypeError, ValueError) as err:
+                raise ValueError(f"Invalid penalty_amount: {penalty_amount}") from err
+
+        if not penalty_amount.is_finite():
+            raise ValueError(f"penalty_amount must be finite, got {penalty_amount}.")
+
+        if penalty_amount < ZERO_AMOUNT:
+            raise ValueError(f"penalty_amount cannot be negative, got {penalty_amount}.")
+
+        key = (date_str, valid_rider_id)
+        if key in self._daily_ledgers:
+            raise ValueError(
+                f"Cannot seed daily penalty: daily ledger for rider '{valid_rider_id}' on '{date_str}' already exists."
+            )
+
+        capped_penalty = min(DAILY_DEDUCTION_CAP, penalty_amount)
+        self._daily_ledgers[key] = _DailyAccumulator(late_deductions=capped_penalty)
+        return capped_penalty
+
+    def has_daily_ledger(
+        self,
+        rider_id: str,
+        payout_date: str | date,
+    ) -> bool:
+        """Return True if a daily ledger exists for the given rider and date."""
+        valid_rider_id = _validate_non_empty_str(rider_id, "rider_id")
+        if isinstance(payout_date, bool):
+            raise TypeError("payout_date cannot be a boolean.")
+        if isinstance(payout_date, datetime):
+            raise TypeError("payout_date must be a date, not a datetime.")
+        date_str = _format_date(payout_date)
+        return (date_str, valid_rider_id) in self._daily_ledgers
+
+    def has_delivered_order(self, order_id: str) -> bool:
+        """Return True if an order delivery drop has already been recorded."""
+        valid_order_id = _validate_non_empty_str(order_id, "order_id")
+        return valid_order_id in self._delivered_orders
+
+    def get_delivered_order(
+        self, order_id: str
+    ) -> DeliveredOrderAudit | None:
+        """Retrieve audit record for a previously recorded delivery event, or None."""
+        valid_order_id = _validate_non_empty_str(order_id, "order_id")
+        return self._delivered_orders.get(valid_order_id)
 
     def reset(self) -> None:
         """Reset internal ledger and cache state."""
