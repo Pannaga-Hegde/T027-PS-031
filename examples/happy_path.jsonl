@@ -1,0 +1,11 @@
+{"command":"REGISTER_PRODUCT","timestamp":"2026-11-06T09:00:00","payload":{"sku":"SKU-PROD-1","name":"Apple","category":"Produce","brand":"Fresh","price":"120.00"}}
+{"command":"REGISTER_STORE","timestamp":"2026-11-06T09:01:00","payload":{"store_id":"STORE-P1","name":"Produce Hub","location":{"latitude":12.9716,"longitude":77.5946},"operating_hours":{"open_time":"06:00:00","close_time":"23:00:00"},"inventory":{"SKU-PROD-1":50}}}
+{"command":"REGISTER_RIDER","timestamp":"2026-11-06T09:02:00","payload":{"rider_id":"RIDER-P1","name":"Kiran"}}
+{"command":"SUBMIT_ORDER","timestamp":"2026-11-06T09:03:00","payload":{"order_id":"ORD-STREAM-1","customer_id":"C-1","customer_lat":12.9720,"customer_lon":77.5948,"items":[{"sku_id":"SKU-PROD-1","quantity":2}],"order_time":"2026-11-06T09:03:00"}}
+{"command":"START_PICKING","timestamp":"2026-11-06T09:05:00","payload":{"order_id":"ORD-STREAM-1"}}
+{"command":"FULFIL_ORDER","timestamp":"2026-11-06T09:07:00","payload":{"order_id":"ORD-STREAM-1","amount_paid":"250.00"}}
+{"command":"CREATE_BATCH","timestamp":"2026-11-06T09:07:00","payload":{"batch_id":"BATCH-P1","store_id":"STORE-P1","rider_id":"RIDER-P1"}}
+{"command":"ADD_ORDER_TO_BATCH","timestamp":"2026-11-06T09:07:00","payload":{"batch_id":"BATCH-P1","order_id":"ORD-STREAM-1"}}
+{"command":"DISPATCH_BATCH","timestamp":"2026-11-06T09:10:00","payload":{"batch_id":"BATCH-P1"}}
+{"command":"COMPLETE_BATCH_DELIVERY","timestamp":"2026-11-06T09:20:00","payload":{"batch_id":"BATCH-P1"}}
+{"command":"GET_ORDER_TRACE","timestamp":"2026-11-06T09:21:00","payload":{"order_id":"ORD-STREAM-1"}}
