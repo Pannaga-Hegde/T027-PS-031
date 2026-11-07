@@ -369,6 +369,12 @@ class PickingService:
         self._order_assignments.pop((schedule_res.store_id, schedule_res.order_id), None)
         self._order_schedules.pop(schedule_res.order_id, None)
 
+    def release_order_schedule(self, order_id: str) -> None:
+        """Release picking slot reservation and scheduled assignment for an order."""
+        schedule_res = self._order_schedules.get(order_id)
+        if schedule_res is not None:
+            self._rollback_scheduling(schedule_res)
+
     def process_order_picking_and_eta(
         self,
         store: Store,

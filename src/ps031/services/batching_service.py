@@ -256,6 +256,18 @@ class BatchingService:
         """Retrieve a batch by its identifier."""
         return self._batches.get(batch_id)
 
+    def has_batch(self, batch_id: str) -> bool:
+        """Check whether a batch with batch_id exists."""
+        if isinstance(batch_id, bool) or not isinstance(batch_id, str):
+            return False
+        return batch_id in self._batches
+
+    def get_active_batch_for_order(self, order_id: str) -> str | None:
+        """Return the active batch ID assigned to order_id, or None."""
+        if isinstance(order_id, bool) or not isinstance(order_id, str):
+            return None
+        return self._order_active_batches.get(order_id)
+
     def restore_original_etas(self, orders: Sequence[Order]) -> None:
         """Restore original promised ETA and delayed_promise for provided orders."""
         for order in orders:
