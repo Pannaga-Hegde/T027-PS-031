@@ -26,6 +26,8 @@ from ps031.orchestrator import ApplicationOrchestrator
 # Mapping commands to their event timestamp parameter name
 _COMMAND_TIMESTAMP_PARAM = {
     "SUBMIT_ORDER": "order_time",
+    "START_PICKING": "started_at",
+    "FULFIL_ORDER": "fulfilled_at",
     "APPLY_WEATHER_HOLD": "hold_start",
     "CREATE_BATCH": "created_at",
     "ADD_ORDER_TO_BATCH": "current_time",

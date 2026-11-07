@@ -249,3 +249,25 @@ Decisions must reflect the actual choices made by the team. Unresolved questions
 **Reason:** Satisfies FR-01 and Issue #27 requirements, enables headless pipeline execution and automated testing, provides fault tolerance for corrupted input streams, and cleanly integrates with existing domain architecture.
 **Alternatives:** Embedding JSON parsing directly into domain services; halting execution upon first syntax error; using float for monetary currency output; mutating global service singletons.
 **Status:** Accepted.
+
+## DEC-19 — Execution Trace Architecture, Event Schema, and Multi-Service Observability
+
+**Date:** 7 November 2026
+**Decision:** For GitHub Issue #28 (Execution Trace Output):
+1. **Centralized Ownership and Storage:** `ApplicationOrchestrator` is the sole owner and registry of execution trace history, maintaining an in-memory dictionary `self.order_events: dict[str, list[dict[str, Any]]]`. Domain services remain focused on their business rules and lifecycle logic without embedding event-tracking state.
+2. **Standardized Event Envelope Schema:** Every trace event conforms to a strict, chronological schema:
+   - `sequence`: 1-based, monotonically increasing per-order integer (`1, 2, 3, ...`).
+   - `timestamp`: ISO-8601 string representing the exact time the domain operation occurred.
+   - `event_type`: Canonical event identifier (`ORDER_SUBMITTED`, `ORDER_ALLOCATED`, `ALLOCATION_REJECTED`, `PICKING_SCHEDULED`, `PICKING_STARTED`, `ORDER_FULFILLED`, `FULFILMENT_CANCELLED`, `WEATHER_HOLD_APPLIED`, `WEATHER_HOLD_SKIPPED`, `BATCH_ASSIGNED`, `ORDER_DISPATCHED`, `ORDER_DELIVERED`, `RIDER_PENALTY_EVALUATED`, `ORDER_CANCELLED`).
+   - `business_rules`: List of applicable domain business rule codes (e.g., `["BR-01", "BR-02", "BR-07"]`).
+   - `details`: Structured serializable dictionary containing domain details (item lines, coordinates, slot loads, delivery fees, lateness calculations, refunds, cancellation fees).
+3. **Deterministic Replay Guarantee:** To guarantee byte-for-byte replay identity across independent runs:
+   - Added `START_PICKING` (`started_at`) and `FULFIL_ORDER` (`fulfilled_at`) to `_COMMAND_TIMESTAMP_PARAM` in `JSONLCommandProcessor`, ensuring command replay inherits envelope timestamps instead of wall-clock `datetime.now()`.
+   - Excluded internal non-deterministic UUIDs (such as inventory reservation IDs) from public event details, retaining all deterministic scheduling and fulfilment metadata.
+   - Ordered set serialization deterministically in `_serialize_trace_detail()` by pre-sorting elements.
+4. **Failure Atomicity and False Event Prevention:** Trace events are recorded strictly after domain operations succeed. In `submit_order()`, if stock reservation or picking scheduling fails, all created reservations and schedules are rolled back and partial trace events are purged from `self.order_events` alongside order cleanup, preventing orphan orders or false success records.
+5. **Idempotency Protection Across Retries:** Repeated invocations of idempotent operations (`fulfil_order`, `add_order_to_batch`, `dispatch_batch`, `complete_order_delivery`, `complete_batch_delivery`, `evaluate_rider_penalties`, `cancel_order`, `apply_weather_hold`) check existing event history and do not emit duplicate trace records.
+6. **Deep Immutability for Consumer Queries:** Both `get_order_trace(order_id)` and `get_order_events(order_id)` return deep copies (`copy.deepcopy()`) of events and detail dictionaries, and `get_order_trace()` provides distinct deep copies for `events` and `trace`, safeguarding the orchestrator's internal audit trail against caller mutations.
+**Reason:** Satisfies FR-11 and Issue #28 requirements, delivers comprehensive end-to-end auditability across the entire order lifecycle, guarantees deterministic stream replay, and preserves strict separation of concerns.
+**Alternatives:** Storing events directly inside `Order` entity dataclass; emitting unstructured log lines to stderr; allowing duplicate events on repeated deliveries or batch evaluations.
+**Status:** Accepted.
