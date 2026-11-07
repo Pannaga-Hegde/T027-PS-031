@@ -37,6 +37,12 @@ from ps031.services.fulfilment_service import (
     FulfilmentEvaluation,
     FulfilmentService,
 )
+from ps031.services.inventory_service import (
+    InventoryService,
+    Reservation,
+    ReservationResult,
+    ReservationStatus,
+)
 from ps031.services.lifecycle import (
     LifecycleTransitionInterface,
     LifecycleTransitionService,
@@ -94,6 +100,7 @@ __all__ = [
     "FulfilmentOrchestrator",
     "FulfilmentResult",
     "FulfilmentService",
+    "InventoryService",
     "LifecycleTransitionInterface",
     "LifecycleTransitionService",
     "OrderCancellationResult",
@@ -106,6 +113,9 @@ __all__ = [
     "PricingService",
     "PricingServiceInterface",
     "RefundRecord",
+    "Reservation",
+    "ReservationResult",
+    "ReservationStatus",
     "RiderPenaltyService",
     "RiderPenaltyServiceInterface",
     "StoreEvaluation",

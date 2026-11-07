@@ -299,7 +299,7 @@ class CompensationService:
                 )
 
             res = self.calculate_compensation(
-                order, actual_delivery_time=delivered_at
+                order, actual_delivery_time=order.actual_delivery_time or delivered_at
             )
             planned_compensations.append((order, res))
 
