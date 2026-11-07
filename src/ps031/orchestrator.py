@@ -14,8 +14,10 @@ Coordinates workflows across:
 """
 
 from collections.abc import Mapping, Sequence
+import copy
 from datetime import date, datetime, time
 from decimal import Decimal
+from enum import Enum
 import sys
 from typing import Any
 
@@ -112,6 +114,75 @@ class ApplicationOrchestrator:
         self.orders: dict[str, Order] = {}
         self.batches: dict[str, Batch] = {}
         self.batch_stores: dict[str, str] = {}
+        self.order_events: dict[str, list[dict[str, Any]]] = {}
+
+    # -----------------------------------------------------------------------
+    # Trace & Observability Helpers (Issue #28)
+    # -----------------------------------------------------------------------
+
+    @classmethod
+    def _serialize_trace_detail(cls, val: Any) -> Any:
+        """Recursively serialize event detail values to safe JSON-serializable primitives."""
+        if val is None or isinstance(val, (str, int, float, bool)):
+            return val
+        if isinstance(val, Decimal):
+            return f"{val:.2f}"
+        if isinstance(val, (datetime, date, time)):
+            return val.isoformat()
+        if isinstance(val, Enum):
+            return val.value
+        if isinstance(val, Mapping):
+            return {str(k): cls._serialize_trace_detail(v) for k, v in val.items()}
+        if isinstance(val, set):
+            try:
+                sorted_items = sorted(val)
+            except TypeError:
+                sorted_items = sorted(val, key=lambda x: str(x))
+            return [cls._serialize_trace_detail(item) for item in sorted_items]
+        if isinstance(val, (list, tuple)):
+            return [cls._serialize_trace_detail(item) for item in val]
+        if hasattr(val, "__dict__"):
+            return {
+                str(k): cls._serialize_trace_detail(v)
+                for k, v in val.__dict__.items()
+                if not k.startswith("_")
+            }
+        return str(val)
+
+    def _record_event(
+        self,
+        order_id: str,
+        event_type: str,
+        timestamp: str | datetime | None = None,
+        business_rules: Sequence[str] | None = None,
+        details: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record an immutable, structured trace event for an order."""
+        if order_id not in self.order_events:
+            self.order_events[order_id] = []
+
+        history = self.order_events[order_id]
+        sequence = len(history) + 1
+
+        if isinstance(timestamp, (datetime, date, time)):
+            ts_str = timestamp.isoformat()
+        elif isinstance(timestamp, str) and timestamp.strip():
+            ts_str = timestamp.strip()
+        else:
+            ts_str = datetime.now().isoformat()
+
+        serialized_details = self._serialize_trace_detail(dict(details or {}))
+        br_list = [str(r) for r in (business_rules or [])]
+
+        event = {
+            "sequence": sequence,
+            "timestamp": ts_str,
+            "event_type": str(event_type),
+            "business_rules": br_list,
+            "details": serialized_details,
+        }
+        history.append(event)
+        return dict(event)
 
     # -----------------------------------------------------------------------
     # 1. Product & Catalog Registration
@@ -406,6 +477,55 @@ class ApplicationOrchestrator:
         if not alloc_result.is_allocated or alloc_result.selected_store is None:
             # Allocation failed: order transitioned to REJECTED by allocate_store
             self.orders[order_id] = order
+            self._record_event(
+                order_id=order.order_id,
+                event_type="ORDER_SUBMITTED",
+                timestamp=order.order_time,
+                business_rules=["BR-01", "BR-02"],
+                details={
+                    "order_id": order.order_id,
+                    "customer_id": order.customer_id,
+                    "customer_lat": order.delivery_location.latitude,
+                    "customer_lon": order.delivery_location.longitude,
+                    "order_time": order.order_time.isoformat(),
+                    "items": [
+                        {
+                            "sku_id": item.sku_id,
+                            "quantity": item.requested_qty,
+                            "unit_price": str(item.unit_price),
+                            "category": item.category,
+                            "brand": item.brand,
+                        }
+                        for item in order.items
+                    ],
+                    "order_value": str(order.original_total_value),
+                    "status": "RECEIVED",
+                },
+            )
+            self._record_event(
+                order_id=order.order_id,
+                event_type="ALLOCATION_REJECTED",
+                timestamp=order.order_time,
+                business_rules=["BR-01", "BR-02"],
+                details={
+                    "order_id": order.order_id,
+                    "status": "REJECTED",
+                    "rejection_reason": alloc_result.rejection_reason,
+                    "evaluations": [
+                        {
+                            "store_id": e.store.store_id,
+                            "distance_km": e.distance_km,
+                            "is_open": e.is_open,
+                            "is_weather_held": e.is_weather_held,
+                            "is_serviceable": e.is_serviceable,
+                            "has_100_percent_stock": e.has_100_percent_stock,
+                            "line_fill_ratio": e.line_fill_ratio,
+                            "current_slot_load": e.current_slot_load,
+                        }
+                        for e in alloc_result.evaluations
+                    ],
+                },
+            )
             return {
                 "order_id": order.order_id,
                 "status": order.status.value,
@@ -429,7 +549,7 @@ class ApplicationOrchestrator:
                     created_reservation_ids.append(res.reservation_id)
 
             # Calculate picking capacity & promised ETA (BR-03, BR-04)
-            self.picking_service.process_order_picking_and_eta(
+            pick_res, eta_res = self.picking_service.process_order_picking_and_eta(
                 store=store,
                 order=order,
                 reference_time=order.order_time,
@@ -443,6 +563,79 @@ class ApplicationOrchestrator:
 
             # Commit order to orchestrator registry only after all operations succeed
             self.orders[order_id] = order
+
+            # Record execution trace events (Issue #28)
+            self._record_event(
+                order_id=order.order_id,
+                event_type="ORDER_SUBMITTED",
+                timestamp=order.order_time,
+                business_rules=["BR-01", "BR-02", "BR-07"],
+                details={
+                    "order_id": order.order_id,
+                    "customer_id": order.customer_id,
+                    "customer_lat": order.delivery_location.latitude,
+                    "customer_lon": order.delivery_location.longitude,
+                    "order_time": order.order_time.isoformat(),
+                    "items": [
+                        {
+                            "sku_id": item.sku_id,
+                            "quantity": item.requested_qty,
+                            "unit_price": str(item.unit_price),
+                            "category": item.category,
+                            "brand": item.brand,
+                        }
+                        for item in order.items
+                    ],
+                    "order_value": str(order.original_total_value),
+                    "status": "RECEIVED",
+                },
+            )
+
+            self._record_event(
+                order_id=order.order_id,
+                event_type="ORDER_ALLOCATED",
+                timestamp=order.order_time,
+                business_rules=["BR-01", "BR-02", "BR-07"],
+                details={
+                    "order_id": order.order_id,
+                    "status": "ALLOCATED",
+                    "allocated_store_id": store.store_id,
+                    "store_name": store.name,
+                    "distance_km": dist_km,
+                    "delivery_fee": str(order.delivery_fee),
+                    "surge_fee": str(order.surge_fee),
+                    "pricing_frozen": order.pricing_frozen,
+                    "evaluations": [
+                        {
+                            "store_id": e.store.store_id,
+                            "distance_km": e.distance_km,
+                            "is_serviceable": e.is_serviceable,
+                            "has_100_percent_stock": e.has_100_percent_stock,
+                            "line_fill_ratio": e.line_fill_ratio,
+                            "current_slot_load": e.current_slot_load,
+                        }
+                        for e in alloc_result.evaluations
+                    ],
+                },
+            )
+
+            self._record_event(
+                order_id=order.order_id,
+                event_type="PICKING_SCHEDULED",
+                timestamp=order.order_time,
+                business_rules=["BR-03", "BR-04"],
+                details={
+                    "order_id": order.order_id,
+                    "store_id": store.store_id,
+                    "assigned_slot_start": pick_res.assigned_slot_start.isoformat(),
+                    "overflow_count": pick_res.overflow_count,
+                    "slot_delay_minutes": pick_res.slot_delay_minutes,
+                    "promised_eta": eta_res.promised_eta.isoformat(),
+                    "delayed_promise": eta_res.is_delayed_promise,
+                    "picking_minutes": eta_res.picking_minutes,
+                    "travel_minutes": eta_res.travel_minutes,
+                },
+            )
 
             return {
                 "order_id": order.order_id,
@@ -482,8 +675,9 @@ class ApplicationOrchestrator:
                 except Exception as rel_err:
                     rollback_failures.append((res_id, rel_err))
 
-            # 4. Ensure orphan order is not retained in registry
+            # 4. Ensure orphan order is not retained in registry and clear partial trace events
             self.orders.pop(order_id, None)
+            self.order_events.pop(order_id, None)
 
             if rollback_failures:
                 sys.stderr.write(
@@ -501,12 +695,35 @@ class ApplicationOrchestrator:
     # 5. Picking & Fulfilment (BR-05, BR-06)
     # -----------------------------------------------------------------------
 
-    def start_picking(self, order_id: str) -> dict[str, Any]:
+    def start_picking(
+        self,
+        order_id: str,
+        started_at: str | datetime | None = None,
+    ) -> dict[str, Any]:
         """Transition order to PICKING status."""
         if order_id not in self.orders:
             raise KeyError(f"Order '{order_id}' not found.")
         order = self.orders[order_id]
         self.lifecycle_service.transition(order, OrderState.PICKING)
+
+        started_dt = (
+            datetime.fromisoformat(str(started_at))
+            if isinstance(started_at, str)
+            else (started_at or datetime.now())
+        )
+
+        self._record_event(
+            order_id=order.order_id,
+            event_type="PICKING_STARTED",
+            timestamp=started_dt,
+            business_rules=["BR-03", "BR-04"],
+            details={
+                "order_id": order.order_id,
+                "status": "PICKING",
+                "allocated_store_id": order.allocated_store_id,
+            },
+        )
+
         return {
             "order_id": order.order_id,
             "status": order.status.value,
@@ -516,11 +733,18 @@ class ApplicationOrchestrator:
         self,
         order_id: str,
         amount_paid: str | Decimal | float | int | None = None,
+        fulfilled_at: str | datetime | None = None,
     ) -> dict[str, Any]:
         """Perform stock fulfillment, substitutions, and 60% cancellation check."""
         if order_id not in self.orders:
             raise KeyError(f"Order '{order_id}' not found.")
         order = self.orders[order_id]
+
+        fulfil_dt = (
+            datetime.fromisoformat(str(fulfilled_at))
+            if isinstance(fulfilled_at, str)
+            else (fulfilled_at or datetime.now())
+        )
 
         reservations = [
             r
@@ -541,6 +765,27 @@ class ApplicationOrchestrator:
                 if fulfil_res.cancellation_result
                 else order.refund_amount
             )
+            existing_canc = [
+                e
+                for e in self.order_events.get(order.order_id, [])
+                if e["event_type"] == "FULFILMENT_CANCELLED"
+            ]
+            if not existing_canc:
+                self._record_event(
+                    order_id=order.order_id,
+                    event_type="FULFILMENT_CANCELLED",
+                    timestamp=fulfil_dt,
+                    business_rules=["BR-05", "BR-06"],
+                    details={
+                        "order_id": order.order_id,
+                        "status": "CANCELLED",
+                        "fulfilled_ratio": fulfil_res.evaluation.fulfilled_ratio,
+                        "fulfilled_value": str(fulfil_res.evaluation.fulfilled_value),
+                        "is_cancelled": True,
+                        "refund_amount": str(refund),
+                        "reason": "Fulfilment value below 60% threshold",
+                    },
+                )
             return {
                 "order_id": order.order_id,
                 "status": order.status.value,
@@ -569,6 +814,46 @@ class ApplicationOrchestrator:
         # 3. Only transition to READY_FOR_DISPATCH after all commits succeed
         if order.status != OrderState.READY_FOR_DISPATCH:
             self.lifecycle_service.transition(order, OrderState.READY_FOR_DISPATCH)
+
+        existing_fulfil = [
+            e
+            for e in self.order_events.get(order.order_id, [])
+            if e["event_type"] == "ORDER_FULFILLED"
+        ]
+        if not existing_fulfil:
+            self._record_event(
+                order_id=order.order_id,
+                event_type="ORDER_FULFILLED",
+                timestamp=fulfil_dt,
+                business_rules=["BR-05", "BR-06"],
+                details={
+                    "order_id": order.order_id,
+                    "status": order.status.value,
+                    "fulfilled_ratio": fulfil_res.evaluation.fulfilled_ratio,
+                    "fulfilled_value": str(fulfil_res.evaluation.fulfilled_value),
+                    "is_cancelled": False,
+                    "refund_amount": "0.00",
+                    "delivery_fee_charged": True,
+                    "substitutions": [
+                        {
+                            "original_sku": item.sku_id,
+                            "substitute_sku": item.substituted_sku_id,
+                            "quantity": item.substituted_quantity,
+                        }
+                        for item in order.items
+                        if item.is_substituted
+                    ],
+                    "shortfalls": [
+                        {
+                            "sku": item.product_id,
+                            "requested_qty": item.requested_qty,
+                            "fulfilled_qty": item.fulfilled_quantity,
+                        }
+                        for item in order.items
+                        if item.fulfilled_quantity < item.requested_qty
+                    ],
+                },
+            )
 
         return {
             "order_id": order.order_id,
@@ -615,6 +900,33 @@ class ApplicationOrchestrator:
             orders=allocated_orders,
             event_id=event_id,
         )
+
+        for o in allocated_orders:
+            existing_event = [
+                e
+                for e in self.order_events.get(o.order_id, [])
+                if e["event_type"] in ("WEATHER_HOLD_APPLIED", "WEATHER_HOLD_SKIPPED")
+                and e["details"].get("event_id") == hold_res.event_id
+            ]
+            if existing_event:
+                continue
+
+            was_extended = o.order_id in hold_res.extended_order_ids
+            self._record_event(
+                order_id=o.order_id,
+                event_type="WEATHER_HOLD_APPLIED" if was_extended else "WEATHER_HOLD_SKIPPED",
+                timestamp=hold_start_dt,
+                business_rules=["BR-11"],
+                details={
+                    "event_id": hold_res.event_id,
+                    "store_id": hold_res.store_id,
+                    "hold_start": hold_res.started_at.isoformat(),
+                    "hold_expiry": hold_res.hold_until.isoformat(),
+                    "eta_extended": was_extended,
+                    "promised_eta": o.promised_eta.isoformat() if o.promised_eta else None,
+                    "extension_minutes": 10 if was_extended else 0,
+                },
+            )
 
         return {
             "event_id": hold_res.event_id,
@@ -737,6 +1049,26 @@ class ApplicationOrchestrator:
             ready_at=curr_time,
         )
 
+        existing_assign = [
+            e
+            for e in self.order_events.get(order.order_id, [])
+            if e["event_type"] == "BATCH_ASSIGNED"
+            and e["details"].get("batch_id") == batch.batch_id
+        ]
+        if not existing_assign:
+            self._record_event(
+                order_id=order.order_id,
+                event_type="BATCH_ASSIGNED",
+                timestamp=curr_time,
+                business_rules=["BR-08"],
+                details={
+                    "batch_id": batch.batch_id,
+                    "store_id": store.store_id,
+                    "rider_id": batch.rider_id,
+                    "orders_in_batch": [o.order_id for o in batch.orders],
+                },
+            )
+
         return {
             "batch_id": batch.batch_id,
             "order_id": order.order_id,
@@ -781,6 +1113,28 @@ class ApplicationOrchestrator:
             rider=rider,
             dispatched_at=disp_dt,
         )
+
+        for o in batch.orders:
+            existing_disp = [
+                e
+                for e in self.order_events.get(o.order_id, [])
+                if e["event_type"] == "ORDER_DISPATCHED"
+                and e["details"].get("batch_id") == batch.batch_id
+            ]
+            if not existing_disp:
+                self._record_event(
+                    order_id=o.order_id,
+                    event_type="ORDER_DISPATCHED",
+                    timestamp=disp_dt,
+                    business_rules=["BR-08"],
+                    details={
+                        "batch_id": batch.batch_id,
+                        "rider_id": rider.rider_id,
+                        "dispatched_at": disp_dt.isoformat(),
+                        "drop_sequence": list(dispatch_res.order_ids),
+                        "status": "DISPATCHED",
+                    },
+                )
 
         return {
             "batch_id": batch.batch_id,
@@ -859,6 +1213,29 @@ class ApplicationOrchestrator:
             actual_delivery_time=order.actual_delivery_time or del_dt,
         )
 
+        existing_del = [
+            e
+            for e in self.order_events.get(order.order_id, [])
+            if e["event_type"] == "ORDER_DELIVERED"
+        ]
+        if not existing_del:
+            self._record_event(
+                order_id=order.order_id,
+                event_type="ORDER_DELIVERED",
+                timestamp=del_dt,
+                business_rules=["BR-09"],
+                details={
+                    "batch_id": batch.batch_id,
+                    "status": "DELIVERED",
+                    "delivered_at": (order.actual_delivery_time or del_dt).isoformat(),
+                    "promised_eta": order.promised_eta.isoformat() if order.promised_eta else None,
+                    "wallet_credit": str(comp_res.wallet_credit),
+                    "free_coupon": comp_res.free_coupon,
+                    "is_late": comp_res.is_late,
+                    "lateness_minutes": comp_res.lateness_minutes,
+                },
+            )
+
         return {
             "batch_id": batch.batch_id,
             "order_id": order.order_id,
@@ -922,6 +1299,41 @@ class ApplicationOrchestrator:
             delivered_at=del_dt,
         )
 
+        for o in batch.orders:
+            if o.status == OrderState.DELIVERED:
+                existing_del = [
+                    e
+                    for e in self.order_events.get(o.order_id, [])
+                    if e["event_type"] == "ORDER_DELIVERED"
+                ]
+                if not existing_del:
+                    comp = self.compensation_service.get_compensation(o.order_id)
+                    w_credit = str(comp.wallet_credit) if comp else str(o.wallet_credit)
+                    f_coupon = comp.free_coupon if comp else o.free_coupon
+                    is_late = comp.is_late if comp else (
+                        (o.actual_delivery_time > o.promised_eta)
+                        if (o.actual_delivery_time and o.promised_eta)
+                        else False
+                    )
+                    l_mins = comp.lateness_minutes if comp else 0.0
+
+                    self._record_event(
+                        order_id=o.order_id,
+                        event_type="ORDER_DELIVERED",
+                        timestamp=del_dt,
+                        business_rules=["BR-09"],
+                        details={
+                            "batch_id": batch.batch_id,
+                            "status": "DELIVERED",
+                            "delivered_at": (o.actual_delivery_time or del_dt).isoformat(),
+                            "promised_eta": o.promised_eta.isoformat() if o.promised_eta else None,
+                            "wallet_credit": w_credit,
+                            "free_coupon": f_coupon,
+                            "is_late": is_late,
+                            "lateness_minutes": l_mins,
+                        },
+                    )
+
         return {
             "batch_id": batch.batch_id,
             "delivered_at": del_res.delivered_at.isoformat(),
@@ -954,6 +1366,35 @@ class ApplicationOrchestrator:
             rider=rider,
             delivered_at=del_dt,
         )
+
+        for o in batch.orders:
+            existing = [
+                e
+                for e in self.order_events.get(o.order_id, [])
+                if e["event_type"] == "RIDER_PENALTY_EVALUATED"
+                and e["details"].get("batch_id") == batch.batch_id
+            ]
+            if not existing:
+                self._record_event(
+                    order_id=o.order_id,
+                    event_type="RIDER_PENALTY_EVALUATED",
+                    timestamp=del_dt or datetime.now(),
+                    business_rules=["BR-10"],
+                    details={
+                        "batch_id": batch.batch_id,
+                        "rider_id": rider.rider_id,
+                        "late_orders_count": penalty_res.late_orders_count,
+                        "bonus_lost": penalty_res.bonus_lost,
+                        "batch_bonus_awarded": str(penalty_res.batch_bonus_awarded),
+                        "total_applied_deduction": str(penalty_res.total_applied_deduction),
+                        "rider_daily_penalty": str(rider.daily_penalty),
+                        "rider_daily_penalty_date": (
+                            rider.daily_penalty_date.isoformat()
+                            if rider.daily_penalty_date
+                            else None
+                        ),
+                    },
+                )
 
         return {
             "batch_id": batch.batch_id,
@@ -1011,6 +1452,27 @@ class ApplicationOrchestrator:
             batch=batch,
         )
 
+        existing_canc = [
+            e
+            for e in self.order_events.get(order.order_id, [])
+            if e["event_type"] == "ORDER_CANCELLED"
+        ]
+        if not existing_canc:
+            self._record_event(
+                order_id=order.order_id,
+                event_type="ORDER_CANCELLED",
+                timestamp=canc_dt,
+                business_rules=["BR-12"],
+                details={
+                    "order_id": order.order_id,
+                    "status": "CANCELLED",
+                    "cancellation_fee": str(cancel_res.cancellation_fee),
+                    "refund_amount": str(cancel_res.refund_amount),
+                    "reason": cancel_res.reason,
+                    "cancelled_at": canc_dt.isoformat(),
+                },
+            )
+
         return {
             "order_id": order.order_id,
             "status": order.status.value,
@@ -1024,10 +1486,21 @@ class ApplicationOrchestrator:
     # -----------------------------------------------------------------------
 
     def get_order_trace(self, order_id: str) -> dict[str, Any]:
-        """Return integration trace summary for an order (expanded under Issue #28)."""
+        """Return integration trace summary and structured chronological events for an order."""
         if order_id not in self.orders:
             raise KeyError(f"Order '{order_id}' not found.")
         order = self.orders[order_id]
+
+        events_copy = [
+            {
+                "sequence": e["sequence"],
+                "timestamp": e["timestamp"],
+                "event_type": e["event_type"],
+                "business_rules": list(e["business_rules"]),
+                "details": copy.deepcopy(e["details"]),
+            }
+            for e in self.order_events.get(order_id, [])
+        ]
 
         return {
             "order_id": order.order_id,
@@ -1047,4 +1520,22 @@ class ApplicationOrchestrator:
             "refund_amount": order.refund_amount,
             "wallet_credit": order.wallet_credit,
             "free_coupon": order.free_coupon,
+            "event_count": len(events_copy),
+            "events": events_copy,
+            "trace": copy.deepcopy(events_copy),
         }
+
+    def get_order_events(self, order_id: str) -> list[dict[str, Any]]:
+        """Return a chronological list of trace events recorded for an order."""
+        if order_id not in self.orders and order_id not in self.order_events:
+            raise KeyError(f"Order '{order_id}' not found.")
+        return [
+            {
+                "sequence": e["sequence"],
+                "timestamp": e["timestamp"],
+                "event_type": e["event_type"],
+                "business_rules": list(e["business_rules"]),
+                "details": copy.deepcopy(e["details"]),
+            }
+            for e in self.order_events.get(order_id, [])
+        ]
