@@ -37,6 +37,12 @@ from ps031.services.fulfilment_service import (
     FulfilmentEvaluation,
     FulfilmentService,
 )
+from ps031.services.inventory_service import (
+    InventoryService,
+    Reservation,
+    ReservationResult,
+    ReservationStatus,
+)
 from ps031.services.lifecycle import (
     LifecycleTransitionInterface,
     LifecycleTransitionService,
@@ -52,12 +58,6 @@ from ps031.services.pricing_service import (
     PricingResult,
     PricingService,
     PricingServiceInterface,
-)
-from ps031.services.rider_penalty_service import (
-    BatchPenaltyResult,
-    OrderPenaltyDetail,
-    RiderPenaltyService,
-    RiderPenaltyServiceInterface,
 )
 from ps031.services.rider_payout_service import (
     BatchFingerprint,
@@ -91,7 +91,6 @@ __all__ = [
     "BatchDispatchResult",
     "BatchEvaluation",
     "BatchFingerprint",
-    "BatchPenaltyResult",
     "BatchPayoutEvaluation",
     "BatchPenaltyResult",
     "BatchingService",
@@ -113,6 +112,7 @@ __all__ = [
     "FulfilmentOrchestrator",
     "FulfilmentResult",
     "FulfilmentService",
+    "InventoryService",
     "LifecycleTransitionInterface",
     "LifecycleTransitionService",
     "OrderCancellationResult",
@@ -126,9 +126,10 @@ __all__ = [
     "PricingService",
     "PricingServiceInterface",
     "RefundRecord",
+    "Reservation",
+    "ReservationResult",
+    "ReservationStatus",
     "RiderDailyPayout",
-    "RiderPenaltyService",
-    "RiderPenaltyServiceInterface",
     "RiderPayoutService",
     "RiderPayoutServiceInterface",
     "RiderPenaltyService",

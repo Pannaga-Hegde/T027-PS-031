@@ -116,6 +116,22 @@ class InventoryService:
             raise ValueError(f"Store with ID '{store.store_id}' is already registered.")
         self._stores[store.store_id] = store
 
+    def has_store(self, store_id: str) -> bool:
+        """Check whether a dark store is registered."""
+        if isinstance(store_id, bool) or not isinstance(store_id, str):
+            return False
+        return store_id in self._stores
+
+    def get_store(self, store_id: str) -> Store | None:
+        """Retrieve a registered Store instance, or None if not registered."""
+        if isinstance(store_id, bool) or not isinstance(store_id, str):
+            return None
+        return self._stores.get(store_id)
+
+    def unregister_store(self, store_id: str) -> None:
+        """Remove a registered store (used during registration rollback)."""
+        self._stores.pop(store_id, None)
+
     def register_product(self, product: Product) -> None:
         """
         Register a catalog Product instance with the service.
@@ -129,6 +145,22 @@ class InventoryService:
         if product.sku in self._products:
             raise ValueError(f"Product with SKU '{product.sku}' is already registered.")
         self._products[product.sku] = product
+
+    def has_product(self, sku: str) -> bool:
+        """Check whether a catalog product SKU is registered."""
+        if isinstance(sku, bool) or not isinstance(sku, str):
+            return False
+        return sku in self._products
+
+    def get_product(self, sku: str) -> Product | None:
+        """Retrieve a registered Product instance, or None if not registered."""
+        if isinstance(sku, bool) or not isinstance(sku, str):
+            return None
+        return self._products.get(sku)
+
+    def unregister_product(self, sku: str) -> None:
+        """Remove a registered product (used during registration rollback)."""
+        self._products.pop(sku, None)
 
     def _copy_reservation(self, reservation: Reservation) -> Reservation:
         """Return a safe detached copy of the reservation to protect internal state."""

@@ -109,6 +109,16 @@ class PricingService:
             raise TypeError(f"store must be a Store instance, got {type(store).__name__}.")
         self._stores[store.store_id] = store
 
+    def has_store(self, store_id: str) -> bool:
+        """Check whether a store is registered with the pricing service."""
+        if isinstance(store_id, bool) or not isinstance(store_id, str):
+            return False
+        return store_id in self._stores
+
+    def unregister_store(self, store_id: str) -> None:
+        """Remove a registered store (used during registration rollback)."""
+        self._stores.pop(store_id, None)
+
     def _validate_order_value(self, value: Any) -> Decimal:
         """Validate and coerce monetary order value to Decimal."""
         if isinstance(value, bool):
