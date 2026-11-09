@@ -1,0 +1,41 @@
+sku_id,sku_name,brand,category,price
+SKU-001,Kaveri Farms Ghee 500 ml,Kaveri Farms,DAIRY,200.00
+SKU-002,Gokula Ghee 500 ml,Gokula,DAIRY,230.00
+SKU-003,Gokula Curd 400 g,Gokula,DAIRY,40.00
+SKU-004,Gokula Curd 500 g,Gokula,DAIRY,45.00
+SKU-005,Annapoorna Basmati Rice 1 kg,Annapoorna,STAPLES,300.00
+SKU-006,Annapoorna Cold-pressed Groundnut Oil 1 l,Annapoorna,STAPLES,200.00
+SKU-007,Namma Bites Dry Fruit Combo 250 g,Namma Bites,SNACKS,199.00
+SKU-008,Malnad Toned Milk 1 l,Malnad,DAIRY,62.00
+SKU-009,Oven Fresh Whole Wheat Bread 400 g,Oven Fresh,BAKERY,55.00
+SKU-010,Gokula Paneer 200 g,Gokula,DAIRY,85.00
+SKU-011,Malnad Butter 100 g,Malnad,DAIRY,110.00
+SKU-012,Malnad Cheese Slices 200 g,Malnad,DAIRY,58.00
+SKU-013,Gokula Lassi 200 ml,Gokula,DAIRY,121.00
+SKU-014,Malnad Pav 6 pcs,Malnad,BAKERY,66.00
+SKU-015,Malnad Rusk 300 g,Malnad,BAKERY,67.00
+SKU-016,Malnad Brown Bread 400 g,Malnad,BAKERY,45.00
+SKU-017,FarmKart Tomato 1 kg,FarmKart,FRUITS_VEG,64.00
+SKU-018,FarmKart Onion 1 kg,FarmKart,FRUITS_VEG,32.00
+SKU-019,FarmKart Banana Robusta 6 pcs,FarmKart,FRUITS_VEG,77.00
+SKU-020,FarmKart Potato 1 kg,FarmKart,FRUITS_VEG,53.00
+SKU-021,FarmKart Coriander 100 g,FarmKart,FRUITS_VEG,77.00
+SKU-022,Namma Bites Banana Chips 200 g,Namma Bites,SNACKS,126.00
+SKU-023,Namma Bites Masala Peanuts 150 g,Namma Bites,SNACKS,66.00
+SKU-024,Namma Bites Khakhra 200 g,Namma Bites,SNACKS,72.00
+SKU-025,Namma Bites Murukku 250 g,Namma Bites,SNACKS,158.00
+SKU-026,Kaveri Farms Filter Coffee Powder 200 g,Kaveri Farms,BEVERAGES,241.00
+SKU-027,Kaveri Farms Green Tea 25 bags,Kaveri Farms,BEVERAGES,225.00
+SKU-028,Coolsip Tender Coconut Water 1 l,Coolsip,BEVERAGES,220.00
+SKU-029,Kaveri Farms Lemon Soda 600 ml,Kaveri Farms,BEVERAGES,57.00
+SKU-030,Gokula Toor Dal 1 kg,Gokula,STAPLES,207.00
+SKU-031,Gokula Sona Masoori Rice 5 kg,Gokula,STAPLES,132.00
+SKU-032,Gokula Atta 5 kg,Gokula,STAPLES,72.00
+SKU-033,Gokula Sugar 1 kg,Gokula,STAPLES,246.00
+SKU-034,PureLeaf Neem Soap 125 g,PureLeaf,PERSONAL_CARE,148.00
+SKU-035,Sugandh Herbal Shampoo 180 ml,Sugandh,PERSONAL_CARE,142.00
+SKU-036,PureLeaf Toothpaste 150 g,PureLeaf,PERSONAL_CARE,69.00
+SKU-037,PureLeaf Dishwash Bar 300 g,PureLeaf,HOUSEHOLD,164.00
+SKU-038,PureLeaf Floor Cleaner 1 l,PureLeaf,HOUSEHOLD,136.00
+SKU-039,PureLeaf Garbage Bags 30 pcs,PureLeaf,HOUSEHOLD,251.00
+SKU-040,PureLeaf Room Freshener 250 ml,PureLeaf,HOUSEHOLD,179.00

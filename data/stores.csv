@@ -1,0 +1,5 @@
+store_id,store_name,lat,lon,open_time,close_time,picking_capacity_per_slot,active_riders
+DS-01,Koramangala 5th Block,12.935200,77.624500,06:00:00,23:00:00,12,5
+DS-02,Indiranagar 100 Ft Road,12.971900,77.641200,06:00:00,23:00:00,12,4
+DS-03,HSR Layout Sector 2,12.911600,77.647400,06:00:00,23:00:00,12,2
+DS-04,Jayanagar 4th Block,12.930800,77.583800,07:00:00,20:30:00,4,3
