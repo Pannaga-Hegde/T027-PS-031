@@ -472,6 +472,7 @@ class ApplicationOrchestrator:
             slot_loads=slot_loads,
             reference_time=order.order_time,
             apply_lifecycle_transition=True,
+            use_fulfilled_quantities=False,
         )
 
         if not alloc_result.is_allocated or alloc_result.selected_store is None:
