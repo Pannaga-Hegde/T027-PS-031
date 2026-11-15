@@ -453,6 +453,7 @@ def test_command_processor_full_flow_integration():
     assert trace["order_id"] == "ORD-STREAM-1"
     assert trace["status"] == "READY_FOR_DISPATCH"
     assert trace["order_value"] == Decimal("240.00")
+    assert trace["delivery_fee"] == Decimal("0.00")
 
 
 def test_atomic_order_submission_failure_on_second_item_rolls_back(orchestrator: ApplicationOrchestrator):

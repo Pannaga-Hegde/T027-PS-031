@@ -75,6 +75,7 @@ class AllocationServiceInterface(Protocol):
         slot_loads: Mapping[str, int] | None = None,
         reference_time: datetime | None = None,
         apply_lifecycle_transition: bool = True,
+        use_fulfilled_quantities: bool = True,
     ) -> AllocationResult:
         """Select the best eligible store under BR-01 and BR-02 and optionally transition order state."""
         ...
@@ -251,6 +252,7 @@ class AllocationService:
         slot_loads: Mapping[str, int] | None = None,
         reference_time: datetime | None = None,
         apply_lifecycle_transition: bool = True,
+        use_fulfilled_quantities: bool = True,
     ) -> AllocationResult:
         """Select the best eligible store under BR-01 and BR-02 and optionally transition order state."""
         if not order.items:
@@ -336,6 +338,7 @@ class AllocationService:
                 pricing_result = self._pricing_service.calculate_pricing(
                     order=order,
                     store=selected_store,
+                    use_fulfilled_quantities=use_fulfilled_quantities,
                 )
 
             # Snapshot state for atomic rollback if lifecycle transition fails
