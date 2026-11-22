@@ -148,9 +148,10 @@ The engine can also process datasets stored outside the repository. Provide the 
 
 **Example (Windows PowerShell):**
 
-```powershell
+```
 python execution_monitor.py `
   --data-dir "C:\path\to\external-dataset" `
+  --commands "C:\path\to\external-dataset\commands.txt" `
   --output-dir "execution_results"
 ```
 
@@ -161,6 +162,7 @@ Replace the example paths with the actual location of your dataset.
 | Argument | Description |
 |---|---|
 | `--data-dir` | Directory containing the external dataset files. |
+| `--commands` | Path to the command file (commands.txt). |
 | `--output-dir` | Directory where generated reports will be saved. |
 
 The output directory is created automatically if it does not already exist. The original external dataset remains unchanged.
@@ -259,3 +261,8 @@ Additional documentation is available in the `docs/` directory:
 
 All project submission documents and supporting materials are available in the following Google Drive folder:
 https://drive.google.com/drive/folders/1a6yFDXUcs9eWeViIWxTsZNAoCryv1oIs?usp=sharing
+
+
+## 12. Team Information
+Team ID: T027
+Project: PS-031 Quick Commerce Engine
