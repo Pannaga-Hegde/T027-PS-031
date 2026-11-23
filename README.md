@@ -4,7 +4,7 @@ A Python-based simulation engine for managing quick-commerce operations, includi
 
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
-![Tests](https://img.shields.io/badge/Tests-1%2C133%20Passed-success)
+![Tests](https://img.shields.io/badge/Tests-1%2C136%20Passed-success)
 ![Dependencies](https://img.shields.io/badge/Runtime%20Dependencies-None-brightgreen)
 
 ## 1. Project Overview
