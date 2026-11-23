@@ -2,16 +2,6 @@
 
 **Project:** Dark-Store Order Allocation with 10-Minute SLA, Rider Batching and Substitutions
 
-**Status definitions:**
-
-* `NOT IMPLEMENTED` — The rule specification is complete, but backend code has not been implemented.
-* `IN PROGRESS` — Implementation has started.
-* `IMPLEMENTED` — The code has been written.
-* `TESTED` — Required tests pass for the rule.
-* `VERIFIED` — Implementation, tests, and documentation have been reviewed together.
-
-*Note for Week 1 Design Deliverable:* All 12 business rules below have complete requirements and test specifications. The `NOT IMPLEMENTED` status tags reflect software execution progress, which begins in Week 2.
-
 ## BR-01 — Serviceability
 
 **Requirement:** A store is serviceable only when the order is within 3.0 km and the order time is inside the store's operating hours. Calculate distance using the Haversine formula and round to two decimal places.
@@ -25,8 +15,6 @@
 * Order inside operating hours.
 * Order outside operating hours.
 * Invalid geographic coordinates.
-
-**Status:** NOT IMPLEMENTED
 
 ## BR-02 — Store Selection
 
@@ -43,8 +31,6 @@
 * No store with complete stock.
 * Deterministic final tie-break.
 
-**Status:** NOT IMPLEMENTED
-
 ## BR-03 — Picking Capacity
 
 **Requirement:** A store accepts at most its configured picking capacity per 10-minute slot, defaulting to 12 orders. When the slot is full, the order rolls into the next slot and its ETA shifts by 10 minutes.
@@ -60,8 +46,6 @@
 * Order placed near store closing time.
 * Correct ETA adjustment.
 
-**Status:** NOT IMPLEMENTED
-
 ## BR-04 — ETA and Delayed Promise
 
 **Requirement:** Promised ETA is calculated using two minutes for picking, 1.5 minutes per kilometre rounded up to a minute, and two minutes per earlier drop in the same batch. If ETA exceeds 10 minutes and the customer has not opted into slow delivery, set `DELAYED_PROMISE` and pre-arm SLA compensation.
@@ -76,8 +60,6 @@
 * ETA greater than 10 minutes.
 * Slow-delivery preference.
 * Earlier-drop adjustment.
-
-**Status:** NOT IMPLEMENTED
 
 ## BR-05 — Substitution
 
@@ -95,8 +77,6 @@
 * Substitute never charged above original price.
 * Multiple eligible candidates.
 
-**Status:** NOT IMPLEMENTED
-
 ## BR-06 — Partial Fulfilment
 
 **Requirement:** If fulfilled value drops below 60% of original order value, cancel before dispatch and issue a full refund with no delivery fee. (Triggers the `PICKING --> CANCELLED` threshold transition in `docs/state-diagram.mmd`).
@@ -112,8 +92,6 @@
 * No delivery fee on threshold cancellation.
 * Cancellation occurs before dispatch.
 
-**Status:** NOT IMPLEMENTED
-
 ## BR-07 — Delivery Fee and Surge
 
 **Requirement:** Delivery fee is ₹0 when post-substitution order value is at least ₹199; otherwise ₹25. Add a ₹15 surge when active riders are fewer than three at allocation time. Freeze the fee at allocation.
@@ -127,8 +105,6 @@
 * Fewer than three active riders.
 * Exactly three active riders.
 * Fee remains frozen after allocation.
-
-**Status:** NOT IMPLEMENTED
 
 ## BR-08 — Rider Batching
 
@@ -146,8 +122,6 @@
 * Dispatch after three minutes from first picking.
 * Dispatch when the batch becomes full.
 
-**Status:** NOT IMPLEMENTED
-
 ## BR-09 — SLA Compensation
 
 **Requirement:** Delivery later than promised ETA by 5–10 minutes receives ₹25 wallet credit. More than 10 minutes late receives ₹50 wallet credit plus a free delivery coupon. A `DELAYED_PROMISE` order receives no compensation when lateness is within five minutes of the longer promise.
@@ -162,8 +136,6 @@
 * Delayed-promise exception.
 * Wallet credit and coupon are recorded separately.
 * Weather-hold extension is not incorrectly treated as customer-compensable lateness.
-
-**Status:** NOT IMPLEMENTED
 
 ## BR-10 — Rider Penalty
 
@@ -180,8 +152,6 @@
 * Daily penalty cap.
 * Multiple batches for the same rider.
 
-**Status:** TESTED
-
 ## BR-11 — Weather Hold
 
 **Requirement:** A weather hold stops new allocations to a store for 20 minutes. Orders already allocated there receive a 10-minute ETA extension without compensation for that extension.
@@ -197,8 +167,6 @@
 * Weather hold issued while a batch is being picked.
 * Hold expiry calculation.
 
-**Status:** NOT IMPLEMENTED
-
 ## BR-12 — Cancellation
 
 **Requirement:** Cancellation before picking starts is free. Cancellation after picking starts but before dispatch costs ₹20. After dispatch, no refund is provided except for lines substituted without `ALLOW`. (Reconciled with lifecycle transitions in `docs/state-diagram.mmd`).
@@ -213,8 +181,6 @@
 * Refund eligibility for substituted lines without `ALLOW`.
 * Cancellation fee.
 * Invalid lifecycle transition.
-
-**Status:** NOT IMPLEMENTED
 
 ## Implementation Policy
 
