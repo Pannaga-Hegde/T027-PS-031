@@ -39,11 +39,11 @@ Previously passing tests are rerun after code changes to detect unintended behav
 | BR-07         | Delivery fee and surge          | `test_pricing.py`                        |
 | BR-08         | Rider batching                  | `test_batching.py`                       |
 | BR-09         | SLA compensation                | `test_compensation.py`                   |
-| BR-10         | Rider penalties                 | `test_compensation.py`                   |
+| BR-10         | Rider penalties                 | `test_rider_penalty.py`                  |
 | BR-11         | Weather holds                   | `test_weather_hold.py`                   |
 | BR-12         | Customer cancellation           | `test_cancellation.py`                   |
 
-The listed test files are planned artifacts. Create them when their corresponding modules are implemented.
+The listed test files are maintained in the tests/ directory and contain tests for their corresponding business rules.
 
 ## 4. Required Edge Cases
 
