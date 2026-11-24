@@ -262,6 +262,8 @@ Additional documentation is available in the `docs/` directory:
 All project submission documents and supporting materials are available in the following Google Drive folder:
 https://drive.google.com/drive/folders/1a6yFDXUcs9eWeViIWxTsZNAoCryv1oIs?usp=sharing
 
+Demo video: https://drive.google.com/file/d/1Vk9lSBtoVbpQLHH30gmawWEDjoHQON0W/view?usp=drive_link
+
 
 ## 12. Team Information
 Team ID: T027
